@@ -9,6 +9,7 @@ python-dotenv
 numpy>=2.1.0
 pandas>=2.2.2
 pillow>=11.3.0
+pillow-heif>=0.16.0
 opencv-python-headless>=4.13.0.92
 scikit-image>=0.25.2
 scipy>=1.17.1

@@ -6,6 +6,7 @@ from app.api.valuation import router as valuation_router
 from app.services.auth_service import load_all_models
 from app.services.valuation_service import load_valuation_models
 from app.api.cut_prediction import router as cut_router
+from app.api.carat import router as carat_router
 
 import os
 from dotenv import load_dotenv
@@ -53,3 +54,4 @@ async def startup_event():
 app.include_router(router)
 app.include_router(cut_router, prefix="/api/cut", tags=["cut-prediction"])
 app.include_router(valuation_router, prefix="/api/valuation", tags=["valuation"])
+app.include_router(carat_router, prefix="/api/carat", tags=["carat"])

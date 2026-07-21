@@ -10,6 +10,7 @@ import {
   type IdentifyResponse,
 } from '@/services/identificationApi';
 import FacetedFlowTracker from '@/components/FacetedFlowTracker';
+import CaratTester from '@/components/CaratTester';
 
 const dataURLtoFile = (dataurl: string, filename: string): File => {
   const arr = dataurl.split(",");
@@ -77,6 +78,9 @@ export default function FeatureIdentification({ standalone = false }: { standalo
 
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Sub-tabs on this page: the 4C identification models, or the carat tester.
+  const [tab, setTab] = useState<'identify' | 'carat'>('identify');
 
   // Flow states
   const router = useRouter();
@@ -221,6 +225,9 @@ export default function FeatureIdentification({ standalone = false }: { standalo
         gemType,
         images.map((img) => img.file),
       );
+      if (!data?.aggregate?.cut || !data?.aggregate?.color || !data?.aggregate?.clarity) {
+        throw new Error('The server returned an unexpected result (missing cut/color/clarity). Please try again.');
+      }
       setResult(data);
       if (isFlowActive) {
         sessionStorage.setItem('faceted_flow_identify_result', JSON.stringify(data));
@@ -273,8 +280,30 @@ export default function FeatureIdentification({ standalone = false }: { standalo
         </p>
       </header>
 
+      {/* Sub-tabs: 4C identification vs carat tester (hidden inside the auth flow) */}
+      {!isFlowActive && (
+        <div className="flex justify-center gap-2 mb-6 sm:mb-8">
+          {([['identify', 'Cut · Color · Clarity'], ['carat', 'Carat']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition cursor-pointer border ${
+                tab === key
+                  ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white border-transparent'
+                  : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {tab === 'carat' && !isFlowActive && <CaratTester />}
+
       {/* Single Vertical Card Layout */}
-      {!result && (
+      {tab === 'identify' && !result && (
         <section className="glass-panel p-4 sm:p-8 flex flex-col gap-6 sm:gap-7 max-w-3xl mx-auto w-full relative">
         {isFlowActive && authResult && (
           <div className={`p-4 rounded-xl border flex items-center justify-between gap-4 shadow-sm ${
@@ -547,9 +576,9 @@ export default function FeatureIdentification({ standalone = false }: { standalo
       </section>
       )}
 
-      {error && <div className="mt-4 py-4 px-5 rounded-xl bg-red-500/10 border border-red-500/35 text-red-200 text-sm max-w-3xl mx-auto w-full">{error}</div>}
+      {tab === 'identify' && error && <div className="mt-4 py-4 px-5 rounded-xl bg-red-500/10 border border-red-500/35 text-red-200 text-sm max-w-3xl mx-auto w-full">{error}</div>}
 
-      {result && (
+      {tab === 'identify' && result?.aggregate && (
         <section className="glass-panel mt-4 p-6 sm:p-8 flex flex-col gap-6 animate-slide-up max-w-6xl mx-auto w-full">
           <div className="flex justify-between items-baseline gap-4 flex-wrap border-b border-white/10 pb-4">
             <h2 className="text-xl font-bold text-white">Identification Result</h2>
