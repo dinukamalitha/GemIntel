@@ -1,6 +1,6 @@
 __pycache__
 venv/
 *.pyc
-data/
+data/sessions/*
 .env
 .env.*

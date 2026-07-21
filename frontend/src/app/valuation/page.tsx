@@ -3,12 +3,23 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { ChevronDown, ShieldCheck, Sparkles } from 'lucide-react';
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  CalendarDays,
+  ChevronDown,
+  Gem,
+  Info,
+  Landmark,
+  Sparkles,
+} from 'lucide-react';
 import FacetedFlowTracker from '@/components/FacetedFlowTracker';
 import {
   fetchFactorOptions,
   predictPrice,
+  type EconomicSnapshot,
   type FactorOptions,
+  type GemFactors,
   type PredictionResult,
 } from '@/services/valuesApi';
 
@@ -17,6 +28,29 @@ const GEM_COLORS: Record<string, string> = {
   'Ceylon Blue Spinel': '#ec4899',
   'Ceylon Blue Topaz': '#eab308',
 };
+
+type EconomicSnapshotDraft = {
+  [K in keyof EconomicSnapshot]: number | '';
+};
+
+const DEFAULT_ECONOMIC_FACTORS: EconomicSnapshotDraft = {
+  ccpi: 203.4,
+  ccpi_yoy: 5.5,
+  slfr: 9.25,
+  gold_lkr: 1410706,
+  gdp_growth: 5.1,
+  exchange_rate: 333.98,
+};
+
+const isCompleteSnapshot = (
+  snapshot: EconomicSnapshotDraft
+): snapshot is EconomicSnapshot =>
+  Object.values(snapshot).every(
+    (value) => typeof value === 'number' && Number.isFinite(value)
+  );
+
+const formatLkr = (value: number) =>
+  new Intl.NumberFormat('en-LK', { maximumFractionDigits: 0 }).format(value);
 
 interface CustomSelectProps {
   label: string;
@@ -64,9 +98,8 @@ function CustomSelect({
           <span className="text-white/40 font-medium truncate">Select...</span>
         )}
         <ChevronDown
-          className={`w-4 h-4 text-white/50 transition-transform duration-200 ${
-            isOpen ? 'rotate-180' : ''
-          }`}
+          className={`w-4 h-4 text-white/50 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''
+            }`}
         />
       </button>
 
@@ -80,9 +113,8 @@ function CustomSelect({
                 onChange(opt);
                 onToggle();
               }}
-              className={`w-full px-4 py-2.5 text-left hover:bg-white/5 transition flex items-center justify-between group cursor-pointer ${
-                value === opt ? 'bg-white/5' : ''
-              }`}
+              className={`w-full px-4 py-2.5 text-left hover:bg-white/5 transition flex items-center justify-between group cursor-pointer ${value === opt ? 'bg-white/5' : ''
+                }`}
             >
               <div className="flex items-center gap-2.5 min-w-0">
                 {dotColors && dotColors[opt] && (
@@ -120,6 +152,7 @@ function CustomSelect({
 
 interface NumericInputProps {
   label: string;
+  tooltip?: string;
   value: number | '';
   onChange: (value: number | '') => void;
   step: number;
@@ -131,6 +164,7 @@ interface NumericInputProps {
 
 function NumericInput({
   label,
+  tooltip,
   value,
   onChange,
   step,
@@ -155,9 +189,28 @@ function NumericInput({
 
   return (
     <div>
-      <label className="block text-xs uppercase tracking-wide opacity-50 mb-2 font-semibold text-gray-300">
-        {label}
-      </label>
+      <div className="flex items-center gap-1.5 mb-2">
+        <label className="text-xs uppercase tracking-wide opacity-50 font-semibold text-gray-300">
+          {label}
+        </label>
+        {tooltip && (
+          <span className="relative group inline-flex">
+            <button
+              type="button"
+              aria-label={`${label}: ${tooltip}`}
+              className="text-gray-500 hover:text-violet-400 focus:text-violet-400 focus:outline-none transition-colors cursor-help"
+            >
+              <Info className="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
+            <span
+              role="tooltip"
+              className="pointer-events-none absolute left-1/2 bottom-full z-50 mb-2 w-56 -translate-x-1/2 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-[11px] normal-case tracking-normal text-gray-300 opacity-0 shadow-xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+            >
+              {tooltip}
+            </span>
+          </span>
+        )}
+      </div>
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -194,6 +247,24 @@ function NumericInput({
           +
         </button>
       </div>
+    </div>
+  );
+}
+
+interface EconomicInputsProps {
+  values: EconomicSnapshotDraft;
+  onChange: (field: keyof EconomicSnapshot, value: number | '') => void;
+}
+
+function EconomicInputs({ values, onChange }: EconomicInputsProps) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <NumericInput label="CCPI" tooltip="The Colombo Consumer Price Index measures changes in consumer prices in Colombo." value={values.ccpi} onChange={(value) => onChange('ccpi', value)} step={0.5} min={0} max={500} unit="idx" precision={1} />
+      <NumericInput label="CCPI YoY" tooltip="The year-over-year CCPI shows the percentage change in consumer prices from the same month one year earlier." value={values.ccpi_yoy} onChange={(value) => onChange('ccpi_yoy', value)} step={0.1} min={-20} max={100} unit="%" precision={1} />
+      <NumericInput label="SLFR" tooltip="The Standing Lending Facility Rate is the overnight lending rate set by the Central Bank of Sri Lanka." value={values.slfr} onChange={(value) => onChange('slfr', value)} step={0.05} min={0} max={50} unit="%" precision={2} />
+      <NumericInput label="Gold Price" tooltip="The gold price is the prevailing market value of gold expressed in Sri Lankan rupees." value={values.gold_lkr} onChange={(value) => onChange('gold_lkr', value)} step={1000} min={0} max={5000000} unit="LKR" precision={0} />
+      <NumericInput label="GDP Growth" tooltip="GDP growth is the percentage change in the value of goods and services produced by Sri Lanka's economy." value={values.gdp_growth} onChange={(value) => onChange('gdp_growth', value)} step={0.1} min={-50} max={50} unit="%" precision={1} />
+      <NumericInput label="Exchange Rate" tooltip="The LKR/USD exchange rate is the number of Sri Lankan rupees required to purchase one US dollar." value={values.exchange_rate} onChange={(value) => onChange('exchange_rate', value)} step={0.5} min={0} max={1000} unit="LKR/USD" precision={2} />
     </div>
   );
 }
@@ -239,40 +310,100 @@ export default function Valuation() {
           else if (incomingGemType === 'Blue Spinel') mappedGemType = 'Ceylon Blue Spinel';
           else if (incomingGemType === 'Blue Topaz') mappedGemType = 'Ceylon Blue Topaz';
 
-          // 2. Shape mapping (e.g. 'cushion' -> 'Cushion', 'emerald_cut' -> 'Emerald Cut')
+          // 2. Shape mapping (e.g. 'cushion' -> 'Cushion', 'square' -> 'Asscher')
           let mappedShape = 'Cushion';
           const rawShape = idRes.aggregate?.cut?.shape?.label;
           if (rawShape) {
-            mappedShape = rawShape.split('_').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+            const normalizedShape = rawShape.toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+            const shapeMap: Record<string, string> = {
+              asscher: 'Asscher', asscher_cut: 'Asscher',
+              cushion: 'Cushion', cushion_cut: 'Cushion',
+              emerald: 'Emerald', emerald_cut: 'Emerald',
+              heart: 'Heart', heart_cut: 'Heart',
+              marquise: 'Marquise', marquise_cut: 'Marquise',
+              oval: 'Oval', oval_cut: 'Oval',
+              pear: 'Pear', pear_cut: 'Pear',
+              radiant: 'Radiant', radiant_cut: 'Radiant',
+              round: 'Round', round_cut: 'Round'
+            };
+            mappedShape = shapeMap[normalizedShape] || 'Cushion';
           }
+
 
           // 3. Cut mapping
-          let mappedCut = 'Mixed Brilliant Cut';
+          let mappedCut = 'Mixed';
           const rawCut = idRes.aggregate?.cut?.cut_style?.label;
           if (rawCut) {
-            mappedCut = rawCut.split('_').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-            if (!mappedCut.toLowerCase().includes('cut')) {
-              mappedCut = mappedCut + ' Cut';
-            }
+            const normalizedCut = rawCut.toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+            const cutMap: Record<string, string> = {
+              asscher: 'Asscher Cut', asscher_cut: 'Asscher Cut',
+              brilliant: 'Brilliant', mixed: 'Mixed', mixed_brilliant: 'Mixed',
+              emerald: 'Emerald', emerald_cut: 'Emerald',
+              radiant: 'Radiant Cut', radiant_cut: 'Radiant Cut',
+              step: 'Step', step_cut: 'Step',
+            };
+            mappedCut = cutMap[normalizedCut] || 'Mixed';
           }
 
-          // 4. Color Intensity mapping: saturation -> intensity
-          let mappedColorIntensity = 'Royal Blue';
-          const rawSat = idRes.aggregate?.color?.saturation?.label;
-          if (rawSat) {
-            const cleanedSat = rawSat.toLowerCase().trim();
-            if (cleanedSat.includes('vivid')) mappedColorIntensity = 'Vivid';
-            else if (cleanedSat.includes('intense')) mappedColorIntensity = 'Intense';
-            else mappedColorIntensity = 'Royal Blue';
+          // 4. Color Intensity mapping: intensity -> saturation fallback
+          let mappedColorIntensity = 'Vivid';
+          const rawIntensity = idRes.aggregate?.color?.intensity?.label || idRes.aggregate?.color?.saturation?.label;
+          if (rawIntensity) {
+            const cleanedInt = rawIntensity.toLowerCase().trim();
+            if (cleanedInt.includes('vivid')) mappedColorIntensity = 'Vivid';
+            else if (cleanedInt.includes('intense')) mappedColorIntensity = 'Intense';
+            else if (cleanedInt.includes('deep')) mappedColorIntensity = 'Deep';
+            else if (cleanedInt.includes('dark')) mappedColorIntensity = 'Dark';
+            else if (cleanedInt.includes('light')) mappedColorIntensity = 'Light';
+            else if (cleanedInt.includes('medium')) mappedColorIntensity = 'Medium';
           }
+
+          // 5. Hue mapping
+          let mappedHue = 'Royal Blue';
+          const rawHue = idRes.aggregate?.color?.hue?.label;
+          if (rawHue) {
+            const normalizedHue = rawHue.toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+            const hueMap: Record<string, string> = {
+              blue: 'Blue',
+              cobalt: 'Cobalt Blue', cobalt_blue: 'Cobalt Blue',
+              cornflower: 'Cornflower Blue', cornflower_blue: 'Cornflower Blue',
+              london: 'London Blue', london_blue: 'London Blue',
+              royal: 'Royal Blue', royal_blue: 'Royal Blue',
+              sky: 'Sky Blue', sky_blue: 'Sky Blue',
+              swiss: 'Swiss Blue', swiss_blue: 'Swiss Blue',
+            };
+            mappedHue = hueMap[normalizedHue] || rawHue.split(/[_-]/).map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+          }
+
+          // 6. Clarity grade mapping
+          let mappedClarity = 'VVS';
+          const rawClarity = idRes.aggregate?.clarity?.grade?.label;
+          if (rawClarity) {
+            const cleanedClarity = rawClarity.toLowerCase().trim();
+            if (cleanedClarity.includes('eye') || cleanedClarity.includes('clean')) mappedClarity = 'Eye-clean';
+            else if (cleanedClarity.includes('if') || cleanedClarity.includes('flawless')) mappedClarity = 'IF';
+            else if (cleanedClarity.includes('vvs')) mappedClarity = 'VVS';
+            else if (cleanedClarity.includes('vs')) mappedClarity = 'VS';
+          }
+
+          const authPrediction = authStr
+            ? JSON.parse(authStr)?.ensemble_result?.prediction
+            : 'Natural';
 
           setGemFactors((prev) => ({
             ...prev,
             gem_type: mappedGemType,
             shape: mappedShape,
             cut: mappedCut,
+            hue: mappedHue,
+            clarity: mappedClarity,
             colour_intensity: mappedColorIntensity,
+            natural_or_synthetic:
+              String(authPrediction).toLowerCase().includes('synthetic')
+                ? 'Synthetic'
+                : 'Natural',
           }));
+
 
         } catch (e) {
           console.error('Error pre-populating valuation fields from flow', e);
@@ -282,32 +413,26 @@ export default function Valuation() {
   }, []);
 
   // Gem Factors Form State
-  const [gemFactors, setGemFactors] = useState({
+  const [gemFactors, setGemFactors] = useState<GemFactors>({
     weight_ct: 1.5,
     gem_type: 'Ceylon Blue Sapphire',
-    colour_intensity: 'Royal Blue',
-    clarity: 'VVS1',
+    hue: 'Royal Blue',
+    colour_intensity: 'Vivid',
+    clarity: 'VVS',
     shape: 'Cushion',
-    cut: 'Mixed Brilliant Cut',
-    enhancement: 'Unheated',
+    cut: 'Mixed',
+    natural_or_synthetic: 'Natural',
+    heat_treatment: 'Not Heat Treated',
   });
 
   // Economic Factors Form State
-  const [economicFactors, setEconomicFactors] = useState<{
-    ccpi: number | '';
-    ccpi_yoy: number | '';
-    slfr: number | '';
-    gold_lkr: number | '';
-    gdp_growth: number | '';
-    exchange_rate: number | '';
-  }>({
-    ccpi: '',
-    ccpi_yoy: '',
-    slfr: '',
-    gold_lkr: '',
-    gdp_growth: '',
-    exchange_rate: '',
-  });
+  const [economicFactors, setEconomicFactors] = useState<EconomicSnapshotDraft>(
+    { ...DEFAULT_ECONOMIC_FACTORS }
+  );
+  const [valuationDate, setValuationDate] = useState(
+    () => new Date().toISOString().slice(0, 10)
+  );
+  const [confidenceLevel, setConfidenceLevel] = useState(0.9);
 
   // Click outside to close dropdowns
   useEffect(() => {
@@ -346,22 +471,27 @@ export default function Valuation() {
   };
 
   const handlePredict = async () => {
-    const { ccpi, ccpi_yoy, slfr, gold_lkr, gdp_growth, exchange_rate } = economicFactors;
-    if (
-      ccpi === '' ||
-      ccpi_yoy === '' ||
-      slfr === '' ||
-      gold_lkr === '' ||
-      gdp_growth === '' ||
-      exchange_rate === ''
-    ) {
-      toast.error('Please enter all economic indicators before estimating the value.');
+    if (!valuationDate) {
+      toast.error('Please enter the valuation date.');
+      return;
+    }
+    if (!isCompleteSnapshot(economicFactors)) {
+      toast.error('Please enter all current economic indicators.');
       return;
     }
 
     setPredicting(true);
     try {
-      const data = await predictPrice(gemFactors, economicFactors as any);
+      const requestBase = {
+        gem_factors: gemFactors,
+        valuation_date: valuationDate,
+        confidence_level: confidenceLevel,
+      };
+      const data = await predictPrice({
+        ...requestBase,
+        economic_source: 'latest_available',
+        economic_factors: economicFactors as EconomicSnapshot,
+      });
       setResult(data);
       setShowResult(true);
       toast.success('Price prediction successful!');
@@ -379,20 +509,17 @@ export default function Valuation() {
     setGemFactors({
       weight_ct: 1.5,
       gem_type: 'Ceylon Blue Sapphire',
-      colour_intensity: 'Royal Blue',
-      clarity: 'VVS1',
+      hue: 'Royal Blue',
+      colour_intensity: 'Vivid',
+      clarity: 'VVS',
       shape: 'Cushion',
-      cut: 'Mixed Brilliant Cut',
-      enhancement: 'Unheated',
+      cut: 'Mixed',
+      natural_or_synthetic: 'Natural',
+      heat_treatment: 'Not Heat Treated',
     });
-    setEconomicFactors({
-      ccpi: '',
-      ccpi_yoy: '',
-      slfr: '',
-      gold_lkr: '',
-      gdp_growth: '',
-      exchange_rate: '',
-    });
+    setEconomicFactors({ ...DEFAULT_ECONOMIC_FACTORS });
+    setValuationDate(new Date().toISOString().slice(0, 10));
+    setConfidenceLevel(0.9);
   };
 
   if (loading) {
@@ -412,37 +539,33 @@ export default function Valuation() {
     'Ceylon Blue Spinel',
     'Ceylon Blue Topaz',
   ];
-  const colourOptions = factorOptions?.gem_factors.colour_intensity || [
-    'Intense',
+  const hueOptions = factorOptions?.gem_factors.hue || [
+    'Blue',
+    'Cobalt Blue',
+    'Cornflower Blue',
+    'London Blue',
     'Royal Blue',
-    'Vivid',
+    'Sky Blue',
+    'Swiss Blue',
+  ];
+  const colourOptions = factorOptions?.gem_factors.colour_intensity || [
+    'Dark', 'Deep', 'Intense', 'Light', 'Medium', 'Vivid',
   ];
   const clarityOptions = factorOptions?.gem_factors.clarity || [
-    'IF',
-    'VS1',
-    'VS2',
-    'VVS1',
-    'VVS2',
+    'Eye-clean', 'IF', 'VS', 'VVS',
   ];
   const shapeOptions = factorOptions?.gem_factors.shape || [
-    'Cushion',
-    'Emerald Cut',
-    'Heart',
-    'Marquise',
-    'Oval',
-    'Pear',
-    'Radiant',
-    'Round',
+    'Asscher', 'Cushion', 'Emerald', 'Heart', 'Marquise', 'Oval', 'Pear',
+    'Radiant', 'Round',
   ];
   const cutOptions = factorOptions?.gem_factors.cut || [
-    'Emerald Cut',
-    'Mixed Brilliant Cut',
-    'Modified Brilliant Cut',
-    'Radiant Cut',
-    'Step Cut',
+    'Asscher Cut', 'Brilliant', 'Emerald', 'Mixed', 'Radiant Cut', 'Step',
   ];
-  const enhancementOptions = factorOptions?.gem_factors.enhancement || [
-    'Unheated',
+  const originOptions = factorOptions?.gem_factors.natural_or_synthetic || [
+    'Natural', 'Synthetic',
+  ];
+  const heatTreatmentOptions = factorOptions?.gem_factors.heat_treatment || [
+    'Heat Treated', 'Not Heat Treated',
   ];
 
   const handleBack = () => {
@@ -451,7 +574,7 @@ export default function Valuation() {
   };
 
   return (
-    <div className="max-width-container pt-2 sm:pt-4 pb-16 sm:pb-20">
+    <div className="max-w-[1100px] mx-auto px-4 sm:px-6 pt-2 sm:pt-4 pb-16 sm:pb-20">
       {isFlowActive && <FacetedFlowTracker currentStep={3} />}
 
       {isFlowActive && (
@@ -474,13 +597,13 @@ export default function Valuation() {
           </span>
         </h1>
         <p className="text-center text-sm sm:text-base opacity-60 max-w-2xl mx-auto px-4 text-gray-300">
-          Get market value estimations by combining visual characterization with real-time global trade market data.
+          Estimate price per carat and total market value using gem characteristics and current and recent economic indicators.
         </p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 items-start">
         {/* Form / Results Column */}
-        <div className="lg:col-span-2 space-y-6 sm:space-y-8" ref={formRef}>
+        <div className="lg:col-span-4 space-y-6 sm:space-y-8" ref={formRef}>
           {!showResult ? (
             <>
               {/* Gem Factors */}
@@ -502,11 +625,10 @@ export default function Valuation() {
                       {authResult && (
                         <p className="flex items-center gap-1 flex-wrap">
                           <span className="font-semibold text-white">Gemstone Authenticity:</span>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            authResult?.ensemble_result?.prediction === 'Synthetic'
-                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                              : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                          }`}>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${authResult?.ensemble_result?.prediction === 'Synthetic'
+                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            }`}>
                             {authResult?.ensemble_result?.prediction || 'Natural'} Origin
                           </span>
                           <span className="text-[10px] opacity-75">
@@ -542,6 +664,15 @@ export default function Valuation() {
                       setOpenDropdown(openDropdown === 'gem_type' ? null : 'gem_type')
                     }
                     dotColors={GEM_COLORS}
+                  />
+
+                  <CustomSelect
+                    label="Hue"
+                    value={gemFactors.hue}
+                    options={hueOptions}
+                    onChange={(val) => handleGemFactorChange('hue', val)}
+                    isOpen={openDropdown === 'hue'}
+                    onToggle={() => setOpenDropdown(openDropdown === 'hue' ? null : 'hue')}
                   />
 
                   <CustomSelect
@@ -591,13 +722,28 @@ export default function Valuation() {
                   />
 
                   <CustomSelect
-                    label="Enhancement"
-                    value={gemFactors.enhancement}
-                    options={enhancementOptions}
-                    onChange={(val) => handleGemFactorChange('enhancement', val)}
-                    isOpen={openDropdown === 'enhancement'}
+                    label="Origin"
+                    value={gemFactors.natural_or_synthetic}
+                    options={originOptions}
+                    onChange={(val) => handleGemFactorChange('natural_or_synthetic', val)}
+                    isOpen={openDropdown === 'natural_or_synthetic'}
                     onToggle={() =>
-                      setOpenDropdown(openDropdown === 'enhancement' ? null : 'enhancement')
+                      setOpenDropdown(
+                        openDropdown === 'natural_or_synthetic' ? null : 'natural_or_synthetic'
+                      )
+                    }
+                  />
+
+                  <CustomSelect
+                    label="Heat Treatment"
+                    value={gemFactors.heat_treatment}
+                    options={heatTreatmentOptions}
+                    onChange={(val) => handleGemFactorChange('heat_treatment', val)}
+                    isOpen={openDropdown === 'heat_treatment'}
+                    onToggle={() =>
+                      setOpenDropdown(
+                        openDropdown === 'heat_treatment' ? null : 'heat_treatment'
+                      )
                     }
                   />
                 </div>
@@ -610,72 +756,44 @@ export default function Valuation() {
                 </h2>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <NumericInput
-                    label="CCPI (Consumer Cost Price Index)"
-                    value={economicFactors.ccpi}
-                    onChange={(val) => handleEconomicFactorChange('ccpi', val)}
-                    step={0.5}
-                    min={80}
-                    max={120}
-                    unit="idx"
-                    precision={1}
-                  />
-
-                  <NumericInput
-                    label="CCPI YoY (%)"
-                    value={economicFactors.ccpi_yoy}
-                    onChange={(val) => handleEconomicFactorChange('ccpi_yoy', val)}
-                    step={0.1}
-                    min={0}
-                    max={15}
-                    unit="%"
-                    precision={1}
-                  />
-
-                  <NumericInput
-                    label="SLFR (Sri Lanka Floating Rate) (%)"
-                    value={economicFactors.slfr}
-                    onChange={(val) => handleEconomicFactorChange('slfr', val)}
-                    step={0.1}
-                    min={5}
-                    max={15}
-                    unit="%"
-                    precision={1}
-                  />
-
-                  <NumericInput
-                    label="Gold Price (LKR)"
-                    value={economicFactors.gold_lkr}
-                    onChange={(val) => handleEconomicFactorChange('gold_lkr', val)}
-                    step={1000}
-                    min={180000}
-                    max={250000}
-                    unit="LKR"
-                    precision={0}
-                  />
-
-                  <NumericInput
-                    label="GDP Growth (%)"
-                    value={economicFactors.gdp_growth}
-                    onChange={(val) => handleEconomicFactorChange('gdp_growth', val)}
-                    step={0.1}
-                    min={-5}
-                    max={10}
-                    unit="%"
-                    precision={1}
-                  />
-
-                  <NumericInput
-                    label="Exchange Rate (LKR/USD)"
-                    value={economicFactors.exchange_rate}
-                    onChange={(val) => handleEconomicFactorChange('exchange_rate', val)}
-                    step={0.5}
-                    min={140}
-                    max={170}
-                    unit="LKR"
-                    precision={2}
-                  />
+                  <div>
+                    <label className="block text-xs uppercase tracking-wide opacity-50 mb-2 font-semibold text-gray-300">
+                      Valuation Date
+                    </label>
+                    <input
+                      type="date"
+                      value={valuationDate}
+                      onChange={(event) => setValuationDate(event.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-violet-500 [color-scheme:dark]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs uppercase tracking-wide opacity-50 mb-2 font-semibold text-gray-300">
+                      Prediction Interval
+                    </label>
+                    <select
+                      value={confidenceLevel}
+                      onChange={(event) => setConfidenceLevel(Number(event.target.value))}
+                      className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-violet-500"
+                    >
+                      <option value={0.8}>80% interval</option>
+                      <option value={0.9}>90% interval</option>
+                      <option value={0.95}>95% interval</option>
+                    </select>
+                  </div>
                 </div>
+
+                <div className="space-y-4 border-t border-white/10 pt-5">
+                  <div>
+                    <h3 className="text-sm font-semibold text-white">Current indicators</h3>
+                    <p className="text-xs text-gray-500 mt-1">Use values applicable on the valuation date.</p>
+                  </div>
+                  <EconomicInputs values={economicFactors} onChange={handleEconomicFactorChange} />
+                </div>
+
+                <p className="text-xs text-amber-300/80 bg-amber-500/5 border border-amber-500/10 rounded-xl p-3 leading-relaxed">
+                  Verify that the current indicators match the selected valuation date before estimating a gemstone price.
+                </p>
               </div>
 
               {/* Action Button */}
@@ -704,11 +822,10 @@ export default function Valuation() {
                 <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3.5 text-xs animate-fade-in shadow-sm animate-fade-in">
                   <div className="flex justify-between items-center border-b border-white/5 pb-2">
                     <span className="text-gray-400 font-medium">Gem Authenticity:</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      authResult?.ensemble_result?.prediction === 'Synthetic'
-                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                        : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    }`}>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${authResult?.ensemble_result?.prediction === 'Synthetic'
+                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      }`}>
                       {authResult?.ensemble_result?.prediction || 'Natural'} Origin
                     </span>
                   </div>
@@ -734,35 +851,184 @@ export default function Valuation() {
               {/* Main Price */}
               <div className="text-center py-4">
                 <p className="text-gray-400 text-xs sm:text-sm uppercase tracking-wider mb-2 font-semibold">
-                  Estimated Market Value
+                  Estimated Price Range
                 </p>
-                <div className="text-4xl sm:text-5xl lg:text-6xl font-bold gradient-text tracking-tight mb-3">
-                  LKR {result?.predicted_price_lkr.toLocaleString()}
-                </div>
+                {/* <div className="text-4xl sm:text-5xl lg:text-6xl font-bold gradient-text tracking-tight mb-3">
+                  LKR {result ? formatLkr(result.predicted_total_price_lkr) : '—'}
+                </div> */}
+                <p className="text-4xl sm:text-5xl lg:text-5xl font-bold gradient-text tracking-tight mb-3">
+                  {result
+                    ? `LKR ${formatLkr(result.prediction_interval.lower_total_price_lkr)} – LKR ${formatLkr(result.prediction_interval.upper_total_price_lkr)}`
+                    : '—'}
+                </p>
                 <div className="inline-block px-4 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-xs sm:text-sm font-semibold shadow-[0_0_12px_rgba(16,185,129,0.05)]">
-                  AI Confidence: {((result?.confidence || 0) * 100).toFixed(1)}%
+                  {result ? `${(result.prediction_interval.confidence_level * 100).toFixed(0)}% prediction interval` : 'Prediction interval'}
                 </div>
               </div>
 
-              {/* Model Breakdown */}
+              {/* Price-per-carat breakdown */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-white/5 rounded-xl p-4 border border-white/10 shadow-lg">
                   <p className="text-xs text-gray-400 uppercase tracking-wider mb-2 font-semibold">
-                    XGBoost Prediction
+                    Predicted Price per Carat
                   </p>
                   <p className="text-xl sm:text-2xl font-bold text-violet-400">
-                    LKR {result?.breakdown.xgboost.predicted_price_lkr.toLocaleString()}
+                    LKR {result ? formatLkr(result.predicted_price_per_carat_lkr) : '—'}
                   </p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-4 border border-white/10 shadow-lg">
                   <p className="text-xs text-gray-400 uppercase tracking-wider mb-2 font-semibold">
-                    LightGBM Prediction
+                    Price-per-Carat Interval
                   </p>
-                  <p className="text-xl sm:text-2xl font-bold text-cyan-400">
-                    LKR {result?.breakdown.lightgbm.predicted_price_lkr.toLocaleString()}
+                  <p className="text-base sm:text-lg font-bold text-cyan-400 leading-relaxed">
+                    {result
+                      ? `LKR ${formatLkr(result.prediction_interval.lower_price_per_carat_lkr)} – LKR ${formatLkr(result.prediction_interval.upper_price_per_carat_lkr)}`
+                      : '—'}
                   </p>
                 </div>
               </div>
+
+              <p className="text-xs text-gray-500 text-center leading-relaxed">
+                The total price and its interval are calculated by multiplying the predicted price per carat and interval bounds by {gemFactors.weight_ct} ct.
+              </p>
+
+              {result && (
+                <div className="space-y-6 border-t border-white/10 pt-6">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-violet-400" />
+                      <h3 className="text-lg sm:text-xl font-bold text-white">
+                        Why the model predicted this price
+                      </h3>
+                    </div>
+                    <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
+                      Local SHAP explains this specific voting-ensemble prediction in price-per-carat space. The percentages show each factor&apos;s share of the total explanation strength.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {result.explanation.categories.map((category) => {
+                      const isIncrease = category.direction === 'increase';
+                      const isGemological = category.category === 'Gemological';
+                      const isEconomic = category.category === 'Economic';
+                      const CategoryIcon = isGemological ? Gem : isEconomic ? Landmark : CalendarDays;
+                      const accent = isGemological
+                        ? 'text-cyan-400 border-cyan-500/20 bg-cyan-500/5'
+                        : isEconomic
+                          ? 'text-violet-400 border-violet-500/20 bg-violet-500/5'
+                          : 'text-amber-400 border-amber-500/20 bg-amber-500/5';
+
+                      return (
+                        <div key={category.category} className={`rounded-xl border p-4 ${accent}`}>
+                          <div className="flex items-center justify-between gap-2 mb-4">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <CategoryIcon className="w-4 h-4 shrink-0" />
+                              <span className="text-xs font-bold uppercase tracking-wider truncate">
+                                {category.category}
+                              </span>
+                            </div>
+                            {category.direction === 'neutral' ? (
+                              <Sparkles className="w-4 h-4 text-gray-400" />
+                            ) : isIncrease ? (
+                              <ArrowUpRight className="w-4 h-4 text-emerald-400" />
+                            ) : (
+                              <ArrowDownRight className="w-4 h-4 text-rose-400" />
+                            )}
+                          </div>
+                          <p className="text-2xl font-bold text-white">
+                            {category.influence_percentage.toFixed(1)}%
+                          </p>
+                          <p className="text-[11px] text-gray-400 mt-1">
+                            of overall influence
+                          </p>
+                          <div className="h-1.5 rounded-full bg-black/30 overflow-hidden mt-3">
+                            <div
+                              className="h-full rounded-full bg-current"
+                              style={{ width: `${Math.min(category.influence_percentage, 100)}%` }}
+                            />
+                          </div>
+                          <p className={`text-xs font-semibold mt-3 ${isIncrease ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {isIncrease ? 'Increased' : category.direction === 'neutral' ? 'Neutral' : 'Decreased'} estimate
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">
+                        Ensemble baseline price per carat
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        The expected model output before this gemstone&apos;s feature effects are applied.
+                      </p>
+                    </div>
+                    <p className="text-lg font-bold text-white whitespace-nowrap">
+                      LKR {formatLkr(result.explanation.baseline_price_per_carat_lkr)}
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Feature contributions</h4>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Ranked by influence on this individual prediction.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {result.explanation.factors.map((factor) => {
+                        const isIncrease = factor.direction === 'increase';
+                        const isNeutral = factor.direction === 'neutral';
+                        return (
+                          <div
+                            key={factor.factor}
+                            className="rounded-xl border border-white/10 bg-white/[0.035] p-4 hover:bg-white/[0.055] transition-colors"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-bold text-white truncate">
+                                  {factor.display_name}
+                                </p>
+                                <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mt-1">
+                                  {factor.category}
+                                </p>
+                              </div>
+                              <span className={`shrink-0 text-xs font-bold px-2 py-1 rounded-lg border ${isNeutral
+                                ? 'text-gray-400 bg-white/5 border-white/10'
+                                : isIncrease
+                                  ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+                                  : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+                                }`}>
+                                {factor.influence_percentage.toFixed(1)}%
+                              </span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-black/30 overflow-hidden mt-4">
+                              <div
+                                className={`h-full rounded-full ${isNeutral ? 'bg-gray-500' : isIncrease ? 'bg-emerald-400' : 'bg-rose-400'
+                                  }`}
+                                style={{ width: `${Math.min(factor.influence_percentage, 100)}%` }}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between gap-2 mt-3 text-xs">
+                              <span className={isNeutral ? 'text-gray-400' : isIncrease ? 'text-emerald-400' : 'text-rose-400'}>
+                                {isNeutral ? 'Neutral effect' : isIncrease ? 'Pushed estimate up' : 'Pushed estimate down'}
+                              </span>
+                              <span className="text-gray-500 font-semibold">
+                                {factor.approximate_effect_percentage > 0 ? '+' : ''}{factor.approximate_effect_percentage.toFixed(1)}% effect
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-gray-500 leading-relaxed border-l-2 border-violet-500/30 pl-3">
+                    {result.explanation.interpretation_note} Approximate effects are derived from the model&apos;s logarithmic price-per-carat output.
+                  </p>
+                </div>
+              )}
 
               {/* Reset / Finish Buttons */}
               <div className="flex flex-col gap-3">
@@ -794,22 +1060,25 @@ export default function Valuation() {
         </div>
 
         {/* Info Sidebar */}
-        <div className="lg:col-span-1">
+        {/* <div className="lg:col-span-1">
           <div className="glass-panel p-5 sm:p-6 sticky top-8 space-y-5 text-sm text-gray-400">
             <h3 className="text-lg font-bold text-white border-b border-white/10 pb-3">
               About This Tool
             </h3>
             <p className="leading-relaxed">
-              This valuation engine uses an ensemble of <strong>XGBoost</strong> and{' '}
-              <strong>LightGBM</strong> models trained on historical gem pricing data.
+              This engine predicts a gemstone&apos;s price per carat, then multiplies it by the entered carat weight to calculate the estimated total price.
             </p>
             <div className="space-y-2">
-              <h4 className="font-semibold text-gray-300">Models Used:</h4>
+              <h4 className="font-semibold text-gray-300">Voting Ensemble:</h4>
               <ul className="list-disc list-inside space-y-1 pl-1">
-                <li>XGBoost Regressor</li>
                 <li>LightGBM Regressor</li>
+                <li>Random Forest Regressor</li>
+                <li>Gradient Boosting Regressor</li>
               </ul>
             </div>
+            <p className="leading-relaxed">
+              The displayed range is a calibrated prediction interval, not a probability that the point estimate is correct.
+            </p>
             <div className="space-y-2">
               <h4 className="font-semibold text-gray-300">Features Analyzed:</h4>
               <ul className="list-disc list-inside space-y-1 pl-1">
@@ -818,7 +1087,7 @@ export default function Valuation() {
               </ul>
             </div>
           </div>
-        </div>
+        </div> */}
       </div>
     </div>
   );

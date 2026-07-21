@@ -48,10 +48,17 @@ export async function uploadGemImages(
   });
 
   if (!res.ok) {
-    throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
+    const errBody = await res.json().catch(() => null);
+    throw new Error(errBody?.detail || `Upload failed: ${res.status} ${res.statusText}`);
   }
 
   const data = await res.json();
+  if (data && data.score !== undefined) {
+    console.log(`[Telemetry] Score: ${data.score}`);
+  }
+  if (data.status === "invalid input") {
+    throw new Error(data.message || "The image entered is not a gem. Please input valid gem images.");
+  }
   return data.session_id;
 }
 

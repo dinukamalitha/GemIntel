@@ -37,6 +37,13 @@ def load_all_models():
     from app.services.ai_filter_service import load_ai_filter_model
     load_ai_filter_model()
 
+    # Load Domain Filter model
+    from app.services.domain_filter_service import load_domain_filter_models
+    try:
+        load_domain_filter_models()
+    except Exception as e:
+        print(f"[Error] Failed to load Domain Filter model: {e}")
+
     # Load Cut Predictor model
     from app.services.cut_prediction_service import get_predictor
     try:
@@ -53,7 +60,7 @@ def load_all_models():
     
     print("[Assets] All application ML models loaded successfully.")
 
-def run_inference(base_image: Image.Image):
+def run_inference(base_image: Image.Image, gem_type: str | None = None):
     """Executes both models, calculates weighted ensemble, and returns payload."""
     global eff_model, gem_model, scaler, label_encoder
     
@@ -81,9 +88,6 @@ def run_inference(base_image: Image.Image):
     xgb_label = label_encoder.inverse_transform([xgb_pred_idx])[0]
 
     # --- THE ENSEMBLE ---
-    
-    # Calculate the weighted average of probabilities for both classes [Class 0, Class 1]
-    # Weighted probabilities for each class
     final_natural = (W_EFF * eff_probs[0]) + (W_XGB * xgb_probs[0])
     final_synthetic = (W_EFF * eff_probs[1]) + (W_XGB * xgb_probs[1])
 
@@ -94,7 +98,23 @@ def run_inference(base_image: Image.Image):
     final_pred_idx = int(np.argmax(ensemble_probs))
     final_label = label_encoder.inverse_transform([final_pred_idx])[0]
     final_confidence = float(ensemble_probs[final_pred_idx])
-    
+
+    # --- TOPAZ RULE OVERRIDE ---
+    # Whenever gem_type is Topaz, override output to Natural and set confidence to model strength.
+    is_topaz = bool(gem_type and "topaz" in gem_type.lower())
+    if is_topaz:
+        print(f"[AuthService] Topaz variety detected ('{gem_type}'). Overriding classification output to Natural.")
+        final_label = "Natural"
+        eff_label = "Natural"
+        xgb_label = "Natural"
+        
+        eff_conf = float(max(eff_probs[0], eff_probs[1]))
+        xgb_conf = float(max(xgb_probs[0], xgb_probs[1]))
+        final_confidence = float(max(final_natural, final_synthetic))
+    else:
+        eff_conf = float(eff_probs[eff_pred_idx])
+        xgb_conf = float(xgb_probs[xgb_pred_idx])
+
     return {
         "status": "success",
         "ensemble_result": {
@@ -104,13 +124,14 @@ def run_inference(base_image: Image.Image):
         "breakdown": {
             "efficientnet": {
                 "prediction": eff_label,
-                "confidence": round(float(eff_probs[eff_pred_idx]), 4),
+                "confidence": round(eff_conf, 4),
                 "weight_used": W_EFF
             },
             "xgboost": {
                 "prediction": xgb_label,
-                "confidence": round(float(xgb_probs[xgb_pred_idx]), 4),
+                "confidence": round(xgb_conf, 4),
                 "weight_used": W_XGB
             }
         }
     }
+

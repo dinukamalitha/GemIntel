@@ -1,202 +1,389 @@
-"""
-Valuation Service - Price Prediction for Gems using XGBoost and LightGBM
-"""
+"""Inference service for the calibrated price-per-carat voting ensemble."""
+
+from __future__ import annotations
+
+import math
+import os
+from threading import Lock
+from typing import Any
+
 import joblib
 import numpy as np
 import pandas as pd
-from typing import Dict, List
-import math
-from app.config import (
-    XGB_VALUATION_MODEL_PATH,
-    LGBM_VALUATION_MODEL_PATH,
-    FEATURE_NAMES_PATH,
-    W_VALUATION_XGB,
-    W_VALUATION_LGBM
+
+from app.config import VALUATION_BUNDLE_PATH, VALUATION_N_JOBS
+from app.schemas.valuation import ValuationRequest
+from app.services.economic_history_service import (
+    EconomicHistoryCoverageError,
+    EconomicHistoryError,
+    economic_context_for_date,
+    latest_history_context_for_date,
+)
+from app.services.valuation_explanation_service import (
+    ValuationExplanationError,
+    explain_voting_prediction,
 )
 
-# Global variables to hold models in memory
-xgb_valuation_model = None
-lgbm_valuation_model = None
-feature_names = None
+
+EXPECTED_FEATURES = (
+    "Gem_Type", "Hue", "Clarity", "Shape", "Cut",
+    "Natural Or Synthetic", "Colour_Intensity", "Heat_Treatment",
+    "Weight_ct", "Log_Weight_ct", "Is_Natural", "Year", "Month",
+    "Quarter", "Month_Sin", "Month_Cos", "CCPI", "CCPI_YoY", "SLFR",
+    "Gold_LKR", "GDP_Growth", "Monthly_Avg_Exchange_Rate",
+    "CCPI_lag1", "CCPI_YoY_lag1", "SLFR_lag1", "Gold_LKR_lag1",
+    "GDP_Growth_lag1", "Monthly_Avg_Exchange_Rate_lag1", "CCPI_lag2",
+    "CCPI_YoY_lag2", "SLFR_lag2", "Gold_LKR_lag2", "GDP_Growth_lag2",
+    "Monthly_Avg_Exchange_Rate_lag2", "CCPI_lag3", "CCPI_YoY_lag3",
+    "SLFR_lag3", "Gold_LKR_lag3", "GDP_Growth_lag3",
+    "Monthly_Avg_Exchange_Rate_lag3",
+)
+
+CATEGORICAL_OPTIONS = {
+    "gem_type": ["Ceylon Blue Sapphire", "Ceylon Blue Spinel", "Ceylon Blue Topaz"],
+    "hue": ["Blue", "Cobalt Blue", "Cornflower Blue", "London Blue", "Royal Blue", "Sky Blue", "Swiss Blue"],
+    "clarity": ["Eye-clean", "IF", "VS", "VVS"],
+    "shape": ["Asscher", "Cushion", "Emerald", "Heart", "Marquise", "Oval", "Pear", "Radiant", "Round"],
+    "cut": ["Asscher Cut", "Brilliant", "Emerald", "Mixed", "Radiant Cut", "Step"],
+    "natural_or_synthetic": ["Natural", "Synthetic"],
+    "colour_intensity": ["Dark", "Deep", "Intense", "Light", "Medium", "Vivid"],
+    "heat_treatment": ["Heat Treated", "Not Heat Treated"],
+}
+
+_bundle: dict[str, Any] | None = None
+_load_lock = Lock()
 
 
-def load_valuation_models():
-    """Load XGBoost and LightGBM models for price prediction."""
-    global xgb_valuation_model, lgbm_valuation_model, feature_names
-    
-    try:
-        print("[ValuationService] Loading valuation models...")
-        xgb_valuation_model = joblib.load(XGB_VALUATION_MODEL_PATH)
-        print(f"✓ XGBoost model loaded from {XGB_VALUATION_MODEL_PATH}")
-        
-        lgbm_valuation_model = joblib.load(LGBM_VALUATION_MODEL_PATH)
-        print(f"✓ LightGBM model loaded from {LGBM_VALUATION_MODEL_PATH}")
-        
-        feature_names = joblib.load(FEATURE_NAMES_PATH)
-        print(f"✓ Feature names loaded: {len(feature_names)} features")
-        print(f"   Features: {feature_names}")
-        
-        print("[ValuationService] All valuation models loaded successfully.")
-    except Exception as e:
-        print(f"[Error] Failed to load valuation models: {e}")
-        raise
+class ValuationModelError(RuntimeError):
+    """Raised when the valuation bundle cannot be loaded or used."""
 
 
-def predict_price(gem_factors: Dict, economic_factors: Dict) -> Dict:
-    """
-    Predict gem price using ensemble of XGBoost and LightGBM models.
-    
-    Args:
-        gem_factors: Dict with keys like 'weight_ct', 'gem_type', 'colour_intensity', 
-                     'clarity', 'shape', 'cut', 'enhancement'
-        economic_factors: Dict with keys like 'ccpi', 'ccpi_yoy', 'slfr', 'gold_lkr', 
-                         'gdp_growth', 'exchange_rate'
-    
-    Returns:
-        Dict with predicted price, confidence, and model breakdowns
-    """
-    global xgb_valuation_model, lgbm_valuation_model, feature_names
-    
-    if xgb_valuation_model is None or lgbm_valuation_model is None:
-        raise RuntimeError("Valuation models are not loaded. Call load_valuation_models() first.")
-    
-    # Build feature vector
-    feature_dict = _build_feature_vector(gem_factors, economic_factors)
-    
-    # Create DataFrame with proper feature order
-    X = pd.DataFrame([feature_dict])
-    
-    # Ensure features are in the correct order and all present
-    X = X.reindex(columns=feature_names, fill_value=0)
-    
-    # Make predictions
-    xgb_log_price = float(xgb_valuation_model.predict(X)[0])
-    lgbm_log_price = float(lgbm_valuation_model.predict(X)[0])
-    
-    # Ensemble prediction (weighted average)
-    ensemble_log_price = float((W_VALUATION_XGB * xgb_log_price) + (W_VALUATION_LGBM * lgbm_log_price))
-    
-    # Convert from log space back to actual price
-    predicted_price = float(math.exp(ensemble_log_price))
-    xgb_price = float(math.exp(xgb_log_price))
-    lgbm_price = float(math.exp(lgbm_log_price))
-    
-    # Calculate confidence (normalized probability)
-    # Using the inverse of the coefficient of variation as a confidence measure
-    predictions = [xgb_price, lgbm_price]
-    mean_pred = float(np.mean(predictions))
-    std_pred = float(np.std(predictions))
-    confidence = float(1 - (std_pred / mean_pred) if mean_pred > 0 else 0.5)
-    confidence = float(max(0, min(1, confidence)))  # Clamp between 0 and 1
-    
+class ValuationInputError(ValueError):
+    """Raised when an input is outside the model's trained categories."""
+
+
+def _conformal_quantile(residuals: np.ndarray, confidence_level: float) -> float:
+    """Use the same finite-sample conformal rule as the training notebook."""
+    n = len(residuals)
+    quantile_level = min(1.0, math.ceil((n + 1) * confidence_level) / n)
+    return float(np.quantile(residuals, quantile_level, method="higher"))
+
+
+def _limit_model_parallelism(model: Any) -> None:
+    if hasattr(model, "n_jobs"):
+        model.set_params(n_jobs=VALUATION_N_JOBS)
+
+    for pipeline in getattr(model, "estimators_", []):
+        final_estimator = getattr(pipeline, "named_steps", {}).get("model")
+        if final_estimator is not None and hasattr(final_estimator, "n_jobs"):
+            final_estimator.set_params(n_jobs=VALUATION_N_JOBS)
+
+
+def _validate_bundle(bundle: Any) -> dict[str, Any]:
+    if not isinstance(bundle, dict):
+        raise ValuationModelError("Valuation bundle must be a dictionary.")
+    if bundle.get("artifact_version") != 1:
+        raise ValuationModelError("Unsupported valuation artifact version.")
+    if bundle.get("target") != "Log_Price_Per_Carat":
+        raise ValuationModelError("Valuation bundle has an unexpected prediction target.")
+    if tuple(bundle.get("features", ())) != EXPECTED_FEATURES:
+        raise ValuationModelError("Valuation bundle feature schema does not match the API schema.")
+
+    model = bundle.get("model")
+    if model is None or not hasattr(model, "predict"):
+        raise ValuationModelError("Valuation bundle does not contain a fitted model.")
+
+    model_names = bundle.get("model_names")
+    weights = bundle.get("weights")
+    if not isinstance(model_names, list) or not isinstance(weights, dict):
+        raise ValuationModelError("Valuation bundle model metadata is invalid.")
+    if set(model_names) != set(weights):
+        raise ValuationModelError("Valuation model names and weights do not match.")
+    weight_values = np.asarray([weights[name] for name in model_names], dtype=float)
+    if not np.isfinite(weight_values).all() or (weight_values <= 0).any():
+        raise ValuationModelError("Valuation ensemble weights must be finite and positive.")
+    if not math.isclose(float(weight_values.sum()), 1.0, rel_tol=1e-9, abs_tol=1e-9):
+        raise ValuationModelError("Valuation ensemble weights must sum to one.")
+
+    calibration = bundle.get("calibration")
+    if not isinstance(calibration, dict):
+        raise ValuationModelError("Valuation bundle has no calibration metadata.")
+    residuals = np.asarray(calibration.get("residuals", ()), dtype=float)
+    if residuals.ndim != 1 or len(residuals) == 0 or not np.isfinite(residuals).all():
+        raise ValuationModelError("Calibration residuals must be a finite one-dimensional array.")
+    if (residuals < 0).any():
+        raise ValuationModelError("Calibration residuals cannot be negative.")
+    if calibration.get("rows") != len(residuals):
+        raise ValuationModelError("Calibration row count does not match the saved residuals.")
+
+    _limit_model_parallelism(model)
+    return bundle
+
+
+def load_valuation_models(force: bool = False) -> None:
+    """Load and validate the deployment bundle once per backend process."""
+    global _bundle
+    if _bundle is not None and not force:
+        return
+
+    with _load_lock:
+        if _bundle is not None and not force:
+            return
+        if not os.path.isfile(VALUATION_BUNDLE_PATH):
+            raise ValuationModelError(
+                f"Missing valuation bundle at {VALUATION_BUNDLE_PATH}"
+            )
+        try:
+            loaded = joblib.load(VALUATION_BUNDLE_PATH)
+        except Exception as exc:
+            raise ValuationModelError(f"Could not load valuation bundle: {exc}") from exc
+        _bundle = _validate_bundle(loaded)
+
+
+def valuation_model_metadata() -> dict[str, Any]:
+    if _bundle is None:
+        load_valuation_models()
+    assert _bundle is not None
+    calibration = _bundle["calibration"]
     return {
-        "status": "success",
-        "predicted_price_lkr": round(predicted_price, 2),
-        "predicted_log_price": round(ensemble_log_price, 4),
-        "confidence": round(confidence, 4),
-        "breakdown": {
-            "xgboost": {
-                "predicted_price_lkr": round(xgb_price, 2),
-                "predicted_log_price": round(xgb_log_price, 4),
-            },
-            "lightgbm": {
-                "predicted_price_lkr": round(lgbm_price, 2),
-                "predicted_log_price": round(lgbm_log_price, 4),
-            }
-        },
-        "input_factors": {
-            "gem_factors": gem_factors,
-            "economic_factors": economic_factors
-        }
+        "artifact_version": _bundle["artifact_version"],
+        "target": "log_price_per_carat",
+        "feature_count": len(EXPECTED_FEATURES),
+        "model_names": _bundle["model_names"],
+        "weights": _bundle["weights"],
+        "calibration_method": calibration["method"],
+        "calibration_rows": calibration["rows"],
+        "precomputed_quantiles": calibration.get("precomputed_quantiles", {}),
+        "test_metrics": _bundle.get("test_metrics", {}),
     }
 
 
-def _build_feature_vector(gem_factors: Dict, economic_factors: Dict) -> Dict:
-    """
-    Build a feature vector from gem and economic factors.
-    Handles one-hot encoding for categorical features.
-    """
-    features = {}
+SHAPE_SYNONYMS = {
+    "square": "Asscher",
+    "square emerald": "Asscher",
+    "square_emerald": "Asscher",
+    "princess": "Radiant",
+    "baguette": "Emerald",
+    "trillion": "Radiant",
+    "trilliant": "Radiant",
+    "octagonal": "Emerald",
+}
+
+CUT_SYNONYMS = {
+    "mixed brilliant": "Mixed",
+    "mixed_brilliant": "Mixed",
+    "modified brilliant": "Brilliant",
+    "step cut": "Step",
+    "radiant cut": "Radiant Cut",
+    "asscher cut": "Asscher Cut",
+}
+
+def _normalize_category_value(field: str, value: str) -> str:
+    if not isinstance(value, str):
+        return value
+    clean = value.strip()
+    allowed = CATEGORICAL_OPTIONS.get(field, [])
     
-    # Weight feature (log-transformed in the model)
-    if 'weight_ct' in gem_factors:
-        weight_ct = gem_factors['weight_ct']
-        features['Log_Weight_ct'] = math.log(weight_ct) if weight_ct > 0 else 0
-    
-    # Gem Type (one-hot encoded)
-    gem_type = gem_factors.get('gem_type', '')
-    features['Gem_Type_Ceylon Blue Spinel'] = 1 if gem_type == 'Ceylon Blue Spinel' else 0
-    features['Gem_Type_Ceylon Blue Topaz'] = 1 if gem_type == 'Ceylon Blue Topaz' else 0
-    
-    # Colour Intensity (one-hot encoded)
-    colour_intensity = gem_factors.get('colour_intensity', '')
-    features['Colour_Intensity_Intense'] = 1 if colour_intensity == 'Intense' else 0
-    features['Colour_Intensity_Royal Blue'] = 1 if colour_intensity == 'Royal Blue' else 0
-    features['Colour_Intensity_Vivid'] = 1 if colour_intensity == 'Vivid' else 0
-    
-    # Clarity (one-hot encoded)
-    clarity = gem_factors.get('clarity', '')
-    features['Clarity_IF'] = 1 if clarity == 'IF' else 0
-    features['Clarity_VS1'] = 1 if clarity == 'VS1' else 0
-    features['Clarity_VS2'] = 1 if clarity == 'VS2' else 0
-    features['Clarity_VVS1'] = 1 if clarity == 'VVS1' else 0
-    features['Clarity_VVS2'] = 1 if clarity == 'VVS2' else 0
-    
-    # Shape (one-hot encoded)
-    shape = gem_factors.get('shape', '')
-    features['Shape_Cushion'] = 1 if shape == 'Cushion' else 0
-    features['Shape_Emerald Cut'] = 1 if shape == 'Emerald Cut' else 0
-    features['Shape_Heart'] = 1 if shape == 'Heart' else 0
-    features['Shape_Marquise'] = 1 if shape == 'Marquise' else 0
-    features['Shape_Oval'] = 1 if shape == 'Oval' else 0
-    features['Shape_Pear'] = 1 if shape == 'Pear' else 0
-    features['Shape_Radiant'] = 1 if shape == 'Radiant' else 0
-    features['Shape_Round'] = 1 if shape == 'Round' else 0
-    
-    # Cut (one-hot encoded)
-    cut = gem_factors.get('cut', '')
-    features['Cut_Emerald Cut'] = 1 if cut == 'Emerald Cut' else 0
-    features['Cut_Mixed Brilliant Cut'] = 1 if cut == 'Mixed Brilliant Cut' else 0
-    features['Cut_Modified Brilliant Cut'] = 1 if cut == 'Modified Brilliant Cut' else 0
-    features['Cut_Radiant Cut'] = 1 if cut == 'Radiant Cut' else 0
-    features['Cut_Step Cut'] = 1 if cut == 'Step Cut' else 0
-    
-    # Enhancement (one-hot encoded)
-    enhancement = gem_factors.get('enhancement', '')
-    features['Enhancement_Unheated'] = 1 if enhancement == 'Unheated' else 0
-    
-    # Economic Factors (continuous)
-    features['CCPI'] = economic_factors.get('ccpi', 95.0)
-    features['CCPI_YoY'] = economic_factors.get('ccpi_yoy', 4.5)
-    features['SLFR'] = economic_factors.get('slfr', 8.5)
-    features['Gold_LKR'] = economic_factors.get('gold_lkr', 206000)
-    features['GDP_Growth'] = economic_factors.get('gdp_growth', 2.5)
-    features['Monthly_Avg_Exchange_Rate'] = economic_factors.get('exchange_rate', 155.0)
-    
-    return features
+    # 1. Exact match
+    if clean in allowed:
+        return clean
+
+    # 2. Case-insensitive lookup map
+    lower_map = {opt.lower(): opt for opt in allowed}
+    if clean.lower() in lower_map:
+        return lower_map[clean.lower()]
+
+    # 3. Synonym fallbacks
+    if field == "shape":
+        syn = SHAPE_SYNONYMS.get(clean.lower())
+        if syn and syn in allowed:
+            return syn
+        # Suffix strip e.g. "Square Cut" -> "Square" -> "Asscher"
+        if clean.lower().endswith(" cut"):
+            base = clean[:-4].strip()
+            if base.lower() in lower_map:
+                return lower_map[base.lower()]
+            if base.lower() in SHAPE_SYNONYMS:
+                return SHAPE_SYNONYMS[base.lower()]
+    elif field == "cut":
+        syn = CUT_SYNONYMS.get(clean.lower())
+        if syn and syn in allowed:
+            return syn
+
+    # 4. Partial / word match fallback
+    for opt in allowed:
+        if clean.lower() in opt.lower() or opt.lower() in clean.lower():
+            return opt
+
+    return clean
 
 
-def get_factor_options() -> Dict:
-    """
-    Get all available options for gem and economic factors.
-    Useful for populating frontend dropdowns.
-    """
+def _validate_categories(request: ValuationRequest) -> None:
+    gem = request.gem_factors
+    fields = [
+        "gem_type", "hue", "clarity", "shape", "cut",
+        "natural_or_synthetic", "colour_intensity", "heat_treatment",
+    ]
+    for field in fields:
+        raw_val = getattr(gem, field)
+        normalized = _normalize_category_value(field, raw_val)
+        setattr(gem, field, normalized)
+        
+        if normalized not in CATEGORICAL_OPTIONS[field]:
+            raise ValuationInputError(
+                f"Unsupported {field} '{raw_val}'. Allowed values: {CATEGORICAL_OPTIONS[field]}"
+            )
+
+
+
+def _economic_columns(snapshot, suffix: str = "") -> dict[str, float]:
     return {
-        "gem_factors": {
-            "gem_type": ["Ceylon Blue Sapphire", "Ceylon Blue Spinel", "Ceylon Blue Topaz"],
-            "colour_intensity": ["Intense", "Royal Blue", "Vivid"],
-            "clarity": ["IF", "VS1", "VS2", "VVS1", "VVS2"],
-            "shape": ["Cushion", "Emerald Cut", "Heart", "Marquise", "Oval", "Pear", "Radiant", "Round"],
-            "cut": ["Emerald Cut", "Mixed Brilliant Cut", "Modified Brilliant Cut", "Radiant Cut", "Step Cut"],
-            "enhancement": ["Unheated"],
-            "weight_ct": {"min": 0.1, "max": 5.0, "unit": "carats"}
-        },
-        "economic_factors": {
-            "ccpi": {"min": 80, "max": 120, "unit": "index", "description": "Consumer Cost Price Index"},
-            "ccpi_yoy": {"min": 0, "max": 15, "unit": "percent", "description": "CCPI Year-over-Year"},
-            "slfr": {"min": 5, "max": 15, "unit": "percent", "description": "Sri Lanka Floating Rate"},
-            "gold_lkr": {"min": 180000, "max": 250000, "unit": "LKR", "description": "Gold Price in LKR"},
-            "gdp_growth": {"min": -5, "max": 10, "unit": "percent", "description": "GDP Growth Rate"},
-            "exchange_rate": {"min": 140, "max": 170, "unit": "LKR/USD", "description": "Monthly Average Exchange Rate"}
+        f"CCPI{suffix}": snapshot.ccpi,
+        f"CCPI_YoY{suffix}": snapshot.ccpi_yoy,
+        f"SLFR{suffix}": snapshot.slfr,
+        f"Gold_LKR{suffix}": snapshot.gold_lkr,
+        f"GDP_Growth{suffix}": snapshot.gdp_growth,
+        f"Monthly_Avg_Exchange_Rate{suffix}": snapshot.exchange_rate,
+    }
+
+
+def resolve_economic_context(request: ValuationRequest) -> dict[str, Any]:
+    if request.economic_source == "historical":
+        try:
+            return economic_context_for_date(request.valuation_date)
+        except EconomicHistoryCoverageError as exc:
+            raise ValuationInputError(str(exc)) from exc
+        except EconomicHistoryError as exc:
+            raise ValuationModelError(str(exc)) from exc
+
+    if request.economic_source == "latest_available":
+        assert request.economic_factors is not None
+        try:
+            return latest_history_context_for_date(
+                request.valuation_date,
+                request.economic_factors,
+            )
+        except EconomicHistoryCoverageError as exc:
+            raise ValuationInputError(str(exc)) from exc
+        except EconomicHistoryError as exc:
+            raise ValuationModelError(str(exc)) from exc
+
+    assert request.economic_factors is not None
+    assert request.economic_lags is not None
+    valuation_month = pd.Period(request.valuation_date, freq="M")
+    return {
+        "source": "manual",
+        "valuation_month": str(valuation_month),
+        "current": request.economic_factors,
+        "lags": request.economic_lags,
+        "lag_months": [str(valuation_month - offset) for offset in range(1, 4)],
+    }
+
+
+def build_feature_frame(
+    request: ValuationRequest,
+    economic_context: dict[str, Any] | None = None,
+) -> pd.DataFrame:
+    """Derive the exact 40-column feature row used during model training."""
+    _validate_categories(request)
+    context = economic_context or resolve_economic_context(request)
+    gem = request.gem_factors
+    month = request.valuation_date.month
+    row: dict[str, Any] = {
+        "Gem_Type": gem.gem_type, "Hue": gem.hue, "Clarity": gem.clarity,
+        "Shape": gem.shape, "Cut": gem.cut,
+        "Natural Or Synthetic": gem.natural_or_synthetic,
+        "Colour_Intensity": gem.colour_intensity,
+        "Heat_Treatment": gem.heat_treatment, "Weight_ct": gem.weight_ct,
+        "Log_Weight_ct": math.log1p(gem.weight_ct),
+        "Is_Natural": 1 if gem.natural_or_synthetic == "Natural" else 0,
+        "Year": request.valuation_date.year, "Month": month,
+        "Quarter": ((month - 1) // 3) + 1,
+        "Month_Sin": math.sin(2 * math.pi * month / 12),
+        "Month_Cos": math.cos(2 * math.pi * month / 12),
+    }
+    row.update(_economic_columns(context["current"]))
+    for lag_number, snapshot in enumerate(context["lags"], start=1):
+        row.update(_economic_columns(snapshot, suffix=f"_lag{lag_number}"))
+
+    frame = pd.DataFrame([row], columns=EXPECTED_FEATURES)
+    numeric = frame.select_dtypes(include=[np.number]).to_numpy(dtype=float)
+    if not np.isfinite(numeric).all():
+        raise ValuationInputError("All numeric valuation inputs must be finite values.")
+    return frame
+
+
+def predict_price(request: ValuationRequest) -> dict[str, Any]:
+    """Predict log-PPC and return calibrated per-carat and total-price bounds."""
+    if _bundle is None:
+        load_valuation_models()
+    assert _bundle is not None
+
+    economic_context = resolve_economic_context(request)
+    frame = build_feature_frame(request, economic_context=economic_context)
+    model = _bundle["model"]
+    try:
+        ensemble_log_ppc = float(model.predict(frame)[0])
+    except Exception as exc:
+        raise ValuationModelError(f"Ensemble prediction failed: {exc}") from exc
+    if not math.isfinite(ensemble_log_ppc):
+        raise ValuationModelError("The valuation ensemble returned a non-finite prediction.")
+
+    weight_ct = request.gem_factors.weight_ct
+    price_per_carat = max(float(np.expm1(ensemble_log_ppc)), 0.0)
+    total_price = price_per_carat * weight_ct
+
+    residuals = np.asarray(_bundle["calibration"]["residuals"], dtype=float)
+    residual_quantile = _conformal_quantile(residuals, request.confidence_level)
+    lower_ppc = max(float(np.expm1(ensemble_log_ppc - residual_quantile)), 0.0)
+    upper_ppc = max(float(np.expm1(ensemble_log_ppc + residual_quantile)), 0.0)
+
+    breakdown = {}
+    names = _bundle["model_names"]
+    weights = _bundle["weights"]
+    fitted_estimators = list(getattr(model, "estimators_", []))
+    if len(fitted_estimators) != len(names):
+        raise ValuationModelError("Fitted base estimators do not match bundle metadata.")
+    for name, estimator in zip(names, fitted_estimators):
+        log_prediction = float(estimator.predict(frame)[0])
+        model_ppc = max(float(np.expm1(log_prediction)), 0.0)
+        breakdown[name] = {
+            "weight": float(weights[name]),
+            "predicted_log_price_per_carat": log_prediction,
+            "predicted_price_per_carat_lkr": model_ppc,
+            "predicted_total_price_lkr": model_ppc * weight_ct,
         }
+
+    try:
+        explanation = explain_voting_prediction(
+            voting_model=model,
+            frame=frame,
+            model_names=names,
+            weights_by_name=weights,
+            weight_ct=weight_ct,
+        )
+    except ValuationExplanationError as exc:
+        raise ValuationModelError(
+            f"Voting ensemble SHAP explanation failed: {exc}"
+        ) from exc
+
+    return {
+        "status": "success", "currency": "LKR",
+        "target": "log_price_per_carat",
+        "predicted_log_price_per_carat": ensemble_log_ppc,
+        "predicted_price_per_carat_lkr": price_per_carat,
+        "predicted_total_price_lkr": total_price,
+        "prediction_interval": {
+            "confidence_level": request.confidence_level,
+            "method": "out_of_fold_conformal_absolute_log_residuals",
+            "calibration_rows": len(residuals),
+            "log_residual_quantile": residual_quantile,
+            "lower_price_per_carat_lkr": lower_ppc,
+            "upper_price_per_carat_lkr": upper_ppc,
+            "lower_total_price_lkr": lower_ppc * weight_ct,
+            "upper_total_price_lkr": upper_ppc * weight_ct,
+        },
+        "model_predictions": breakdown,
+        "explanation": explanation,
+        "economic_context": economic_context,
     }

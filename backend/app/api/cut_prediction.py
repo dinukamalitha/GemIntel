@@ -81,6 +81,8 @@ async def upload_images(
             f"Provide between {MIN_IMAGES} and {MAX_IMAGES} images. Got {len(images)}.",
         )
 
+
+
     session_id = uuid.uuid4().hex[:12]
     valid_exts = {".png", ".jpg", ".jpeg", ".webp"}
     saved = []

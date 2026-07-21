@@ -32,6 +32,7 @@ export default function FacetedFlowTracker({ currentStep }: FacetedFlowTrackerPr
       name: 'Feature Identification',
       description: 'DINOv2 cut & color extraction',
       icon: Search,
+      href: '/four-c',
     },
     {
       number: 3,
@@ -91,7 +92,11 @@ export default function FacetedFlowTracker({ currentStep }: FacetedFlowTrackerPr
               >
                 {/* Node circle */}
                 <div
+                  onClick={step.href ? () => router.push(step.href!) : undefined}
+                  title={step.href ? `Open ${step.name}` : undefined}
                   className={`w-10 h-10 rounded-full flex items-center justify-center border transition-all duration-300 ${
+                    step.href ? 'cursor-pointer hover:scale-110 hover:border-cyan-400 hover:text-cyan-300' : ''
+                  } ${
                     isActive
                       ? 'bg-gradient-to-br from-cyan-500 to-blue-600 border-cyan-400 text-white shadow-[0_0_15px_rgba(6,182,212,0.4)] scale-110'
                       : isCompleted

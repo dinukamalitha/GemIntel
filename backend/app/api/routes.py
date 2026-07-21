@@ -6,14 +6,18 @@ import cv2
 import numpy as np
 from app.services.auth_service import run_inference
 from collections import defaultdict
-from app.config import GEM_TYPES, GEM_TYPE_HUES
+from app.config import GEM_TYPES
 from app.services.cut_service import predict_cut_one, cut_classes
-from app.services.color_service import predict_color_one, color_classes
+from app.services.color_service import predict_color_one, summarize_color, color_classes
+from app.services.clarity_service import predict_clarity_one, clarity_classes
 
 router = APIRouter()
 
 @router.post("/authenticate")
-async def authenticate_gem(file: UploadFile = File(...)):
+async def authenticate_gem(
+    file: UploadFile = File(...),
+    gem_type: str | None = Form(None)
+):
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image.")
     
@@ -21,6 +25,17 @@ async def authenticate_gem(file: UploadFile = File(...)):
         # Read image
         image_bytes = await file.read()
         base_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        
+        # --- Global Domain Filter check ---
+        from app.services.domain_filter_service import validate_gem_image
+        is_valid, score = validate_gem_image(base_image)
+        print(f"[Telemetry] Score: {score}")
+        if not is_valid:
+            return {
+                "status": "invalid input",
+                "message": "The image entered is not a gem. Please input a valid gem image.",
+                "score": score
+            }
         
         # --- AI Filter check ---
         from app.services.ai_filter_service import analyze_image_origin
@@ -34,9 +49,11 @@ async def authenticate_gem(file: UploadFile = File(...)):
             }
         
         # Pass to our service
-        result = run_inference(base_image)
+        result = run_inference(base_image, gem_type=gem_type)
         result["filter_result"] = filter_result
+        result["score"] = score
         return result
+
         
     except HTTPException as he:
         raise he
@@ -105,26 +122,7 @@ def list_gem_types():
 
 @router.get("/identify/classes")
 def identify_class_labels():
-    return {"cut": cut_classes(), "color": color_classes()}
-
-
-
-def _norm_hue(label: str) -> str:
-    return label.lower().replace("_", " ").replace("-", " ").strip()
-
-
-def _filter_hues_by_gem_type(hue_probs: dict, gem_type: str) -> dict:
-    allowed = GEM_TYPE_HUES.get(gem_type)
-    if not allowed:
-        return hue_probs
-    allowed_norm = {_norm_hue(h) for h in allowed}
-    kept = {k: v for k, v in hue_probs.items() if _norm_hue(k) in allowed_norm}
-    if not kept:
-        return hue_probs
-    total = sum(kept.values())
-    if total <= 0:
-        return kept
-    return {k: v / total for k, v in kept.items()}
+    return {"cut": cut_classes(), "color": color_classes(), "clarity": clarity_classes()}
 
 
 def _top(d: dict) -> tuple[str, float]:
@@ -146,7 +144,11 @@ async def identify_gem(
     sum_shape: dict[str, float] = defaultdict(float)
     sum_cut: dict[str, float] = defaultdict(float)
     sum_hue: dict[str, float] = defaultdict(float)
-    sum_sat: dict[str, float] = defaultdict(float)
+    sum_intensity: dict[str, float] = defaultdict(float)
+    sum_clarity: dict[str, float] = defaultdict(float)
+
+    def _round(d: dict) -> dict:
+        return {k: round(v, 4) for k, v in d.items()}
 
     for f in files:
         if not f.content_type or not f.content_type.startswith("image/"):
@@ -158,32 +160,51 @@ async def identify_gem(
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"{f.filename}: {e}")
 
+        # --- Global Domain Filter check ---
+        from app.services.domain_filter_service import validate_gem_image
+        is_valid, score = validate_gem_image(image)
+        print(f"[Telemetry] Score: {score}")
+        if not is_valid:
+            return {
+                "status": "invalid input",
+                "message": f"The image entered is not a gem: {f.filename}. Please input a valid gem image.",
+                "score": score
+            }
+
         try:
             cut_res = predict_cut_one(image)
-            color_res = predict_color_one(image)
+            color = summarize_color(predict_color_one(image), gem_type)
+            clarity_res = predict_clarity_one(image)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-        color_res["hue_probs"] = _filter_hues_by_gem_type(color_res["hue_probs"], gem_type)
+        hue_probs = color["hue_probs"]
+        intensity_probs = color["intensity_probs"]
+        clarity_probs = clarity_res["clarity_probs"]
 
         shape_top, shape_p = _top(cut_res["shape_probs"])
         cut_top, cut_p = _top(cut_res["cut_style_probs"])
-        hue_top, hue_p = _top(color_res["hue_probs"])
-        sat_top, sat_p = _top(color_res["saturation_probs"])
+        hue_top, hue_p = _top(hue_probs)
+        intensity_top, intensity_p = _top(intensity_probs)
+        clarity_top, clarity_p = _top(clarity_probs)
 
         per_image.append({
             "filename": f.filename,
             "cut": {
                 "shape": {"label": shape_top, "confidence": round(shape_p, 4)},
                 "cut_style": {"label": cut_top, "confidence": round(cut_p, 4)},
-                "shape_probs": {k: round(v, 4) for k, v in cut_res["shape_probs"].items()},
-                "cut_style_probs": {k: round(v, 4) for k, v in cut_res["cut_style_probs"].items()},
+                "shape_probs": _round(cut_res["shape_probs"]),
+                "cut_style_probs": _round(cut_res["cut_style_probs"]),
             },
             "color": {
                 "hue": {"label": hue_top, "confidence": round(hue_p, 4)},
-                "saturation": {"label": sat_top, "confidence": round(sat_p, 4)},
-                "hue_probs": {k: round(v, 4) for k, v in color_res["hue_probs"].items()},
-                "saturation_probs": {k: round(v, 4) for k, v in color_res["saturation_probs"].items()},
+                "intensity": {"label": intensity_top, "confidence": round(intensity_p, 4)},
+                "hue_probs": _round(hue_probs),
+                "intensity_probs": _round(intensity_probs),
+            },
+            "clarity": {
+                "grade": {"label": clarity_top, "confidence": round(clarity_p, 4)},
+                "clarity_probs": _round(clarity_probs),
             },
         })
 
@@ -191,21 +212,25 @@ async def identify_gem(
             sum_shape[k] += v
         for k, v in cut_res["cut_style_probs"].items():
             sum_cut[k] += v
-        for k, v in color_res["hue_probs"].items():
+        for k, v in hue_probs.items():
             sum_hue[k] += v
-        for k, v in color_res["saturation_probs"].items():
-            sum_sat[k] += v
+        for k, v in intensity_probs.items():
+            sum_intensity[k] += v
+        for k, v in clarity_probs.items():
+            sum_clarity[k] += v
 
     n = len(per_image)
     avg_shape = {k: v / n for k, v in sum_shape.items()}
     avg_cut = {k: v / n for k, v in sum_cut.items()}
     avg_hue = {k: v / n for k, v in sum_hue.items()}
-    avg_sat = {k: v / n for k, v in sum_sat.items()}
+    avg_intensity = {k: v / n for k, v in sum_intensity.items()}
+    avg_clarity = {k: v / n for k, v in sum_clarity.items()}
 
     shape_top, shape_p = _top(avg_shape)
     cut_top, cut_p = _top(avg_cut)
     hue_top, hue_p = _top(avg_hue)
-    sat_top, sat_p = _top(avg_sat)
+    intensity_top, intensity_p = _top(avg_intensity)
+    clarity_top, clarity_p = _top(avg_clarity)
 
     return {
         "status": "success",
@@ -215,14 +240,18 @@ async def identify_gem(
             "cut": {
                 "shape": {"label": shape_top, "confidence": round(shape_p, 4)},
                 "cut_style": {"label": cut_top, "confidence": round(cut_p, 4)},
-                "shape_probs": {k: round(v, 4) for k, v in avg_shape.items()},
-                "cut_style_probs": {k: round(v, 4) for k, v in avg_cut.items()},
+                "shape_probs": _round(avg_shape),
+                "cut_style_probs": _round(avg_cut),
             },
             "color": {
                 "hue": {"label": hue_top, "confidence": round(hue_p, 4)},
-                "saturation": {"label": sat_top, "confidence": round(sat_p, 4)},
-                "hue_probs": {k: round(v, 4) for k, v in avg_hue.items()},
-                "saturation_probs": {k: round(v, 4) for k, v in avg_sat.items()},
+                "intensity": {"label": intensity_top, "confidence": round(intensity_p, 4)},
+                "hue_probs": _round(avg_hue),
+                "intensity_probs": _round(avg_intensity),
+            },
+            "clarity": {
+                "grade": {"label": clarity_top, "confidence": round(clarity_p, 4)},
+                "clarity_probs": _round(avg_clarity),
             },
         },
         "per_image": per_image,

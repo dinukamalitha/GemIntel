@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import FeatureLayout from '@/components/FeatureLayout';
 import FacetedFlowTracker from '@/components/FacetedFlowTracker';
-import { ShieldCheck, ShieldAlert } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, ChevronDown, Gem } from 'lucide-react';
 
 interface AuthenticationResult {
   status?: string;
@@ -29,6 +29,16 @@ interface AuthenticationResult {
     weight_used?: number;
   }>;
 }
+
+const gemTypes = ['Blue Sapphire', 'Blue Spinel', 'Blue Topaz'];
+const getGemColor = (type: string) => {
+  switch (type) {
+    case 'Blue Sapphire': return '#3b82f6';
+    case 'Blue Spinel': return '#a855f7';
+    case 'Blue Topaz': return '#06b6d4';
+    default: return '#3b82f6';
+  }
+};
 
 const renderAuthenticationResult = (result: AuthenticationResult) => {
   const filter = result?.filter_result;
@@ -212,13 +222,27 @@ export default function Authentication() {
   const router = useRouter();
   const [isFlowActive, setIsFlowActive] = useState(false);
   const [authResult, setAuthResult] = useState<any>(null);
+  const [gemType, setGemType] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   useEffect(() => {
     const active = sessionStorage.getItem('faceted_flow_active') === 'true';
     setIsFlowActive(active);
+    // Start empty by default so user can choose variety
+    setGemType('');
   }, []);
 
+
+  const handleGemTypeSelect = (type: string) => {
+    setGemType(type);
+    sessionStorage.setItem('faceted_flow_gem_type', type);
+    setIsDropdownOpen(false);
+  };
+
   const handleSuccess = async (file: File, result: any) => {
+    if (gemType) {
+      sessionStorage.setItem('faceted_flow_gem_type', gemType);
+    }
     if (!isFlowActive) return;
     setAuthResult(result);
 
@@ -239,6 +263,9 @@ export default function Authentication() {
   };
 
   const handleProceed = () => {
+    if (gemType) {
+      sessionStorage.setItem('faceted_flow_gem_type', gemType);
+    }
     sessionStorage.setItem('faceted_flow_step', '2');
     router.push('/identification');
   };
@@ -265,12 +292,15 @@ export default function Authentication() {
         <button
           onClick={() => {
             setAuthResult(null);
+            setGemType('');
+            sessionStorage.removeItem('faceted_flow_gem_type');
             handleReset();
           }}
           className="btn-secondary w-full py-3.5 sm:py-4 text-sm sm:text-base cursor-pointer"
         >
           Reset / Authenticate Another Gem
         </button>
+
       </div>
     );
   };
@@ -290,12 +320,57 @@ export default function Authentication() {
         description="AI-powered authenticity verification. Our model detects microscopic markers, inclusions, and growth patterns to determine natural origin versus synthetic laboratory creation."
         buttonText="Authenticate Gem"
         apiEndpoint="/authenticate"
+        gemType={gemType}
         renderResult={renderAuthenticationResult}
+
         onSuccess={handleSuccess}
         customFooter={isFlowActive ? customFooter : undefined}
       >
-        <></>
+        <div className="w-full bg-slate-900/70 backdrop-blur-xl border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col gap-2.5 text-left shadow-xl animate-fade-in">
+          <label className="text-xs uppercase tracking-wider text-gray-400 font-bold flex items-center gap-1.5">
+            <Gem className="w-3.5 h-3.5 text-cyan-400" />
+            Target Gemstone Variety
+          </label>
+          <div className="relative w-full">
+            <button
+              type="button"
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm flex justify-between items-center text-left hover:bg-white/5 transition cursor-pointer"
+            >
+              {gemType ? (
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_currentColor]"
+                    style={{ backgroundColor: getGemColor(gemType), color: getGemColor(gemType) }}
+                  />
+                  <span className="font-semibold text-white">{gemType}</span>
+                </div>
+              ) : (
+                <span className="text-white/40 font-medium">Select gemstone variety...</span>
+              )}
+              <ChevronDown className={`w-4 h-4 text-white/50 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+
+            {isDropdownOpen && (
+              <div className="absolute top-full mt-2 left-0 w-full bg-slate-950 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden py-1.5 animate-fade-in-pure">
+                {gemTypes.map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => handleGemTypeSelect(type)}
+                    className={`w-full px-4 py-2.5 text-left hover:bg-white/5 transition flex items-center gap-2.5 cursor-pointer ${gemType === type ? 'bg-white/5' : ''}`}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: getGemColor(type) }} />
+                    <span className="text-sm font-medium text-white">{type}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </FeatureLayout>
     </div>
   );
 }
+

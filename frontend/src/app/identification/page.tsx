@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, ChevronDown, Upload, ShieldCheck } from 'lucide-react';
+import { X, ChevronDown, Upload, ShieldCheck, Lock } from 'lucide-react';
+
 import {
   fetchGemTypes,
   identifyGem,
   type IdentifyResponse,
 } from '@/services/identificationApi';
 import FacetedFlowTracker from '@/components/FacetedFlowTracker';
+import CaratTester from '@/components/CaratTester';
 
 const dataURLtoFile = (dataurl: string, filename: string): File => {
   const arr = dataurl.split(",");
@@ -65,7 +67,7 @@ function ProbBars({ probs, accent }: { probs: Record<string, number>; accent: st
   );
 }
 
-export default function FeatureIdentification() {
+export default function FeatureIdentification({ standalone = false }: { standalone?: boolean }) {
   const [gemTypes, setGemTypes] = useState<string[]>(FALLBACK_GEM_TYPES);
   const [gemType, setGemType] = useState<string>("");
   const [images, setImages] = useState<UploadedImage[]>([]);
@@ -77,6 +79,9 @@ export default function FeatureIdentification() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Sub-tabs on this page: the 4C identification models, or the carat tester.
+  const [tab, setTab] = useState<'identify' | 'carat'>('identify');
+
   // Flow states
   const router = useRouter();
   const [isFlowActive, setIsFlowActive] = useState(false);
@@ -84,8 +89,16 @@ export default function FeatureIdentification() {
   const [flowImageName, setFlowImageName] = useState<string>('gem.png');
 
   useEffect(() => {
+    // standalone tab: never join the authentication flow, always plain upload/test.
+    if (standalone) return;
     const active = sessionStorage.getItem('faceted_flow_active') === 'true';
     setIsFlowActive(active);
+
+    const savedType = sessionStorage.getItem('faceted_flow_gem_type');
+    if (savedType) {
+      setGemType(savedType);
+    }
+
     if (active) {
       const authStr = sessionStorage.getItem('faceted_flow_auth_result');
       if (authStr) {
@@ -170,12 +183,29 @@ export default function FeatureIdentification() {
   };
 
   const clearAll = () => {
-    images.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+    images.forEach((img) => {
+      if (img.id !== 'flow-image') {
+        URL.revokeObjectURL(img.previewUrl);
+      }
+    });
     setImages([]);
     setGemType('');
     setResult(null);
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleReset = () => {
+    setResult(null);
+    setError(null);
+    
+    if (isFlowActive) {
+      // Keep the imported image, but reset the selected gem type
+      setGemType('');
+    } else {
+      // Standalone flow: clear everything
+      clearAll();
+    }
   };
 
   const handleProcess = async () => {
@@ -195,6 +225,9 @@ export default function FeatureIdentification() {
         gemType,
         images.map((img) => img.file),
       );
+      if (!data?.aggregate?.cut || !data?.aggregate?.color || !data?.aggregate?.clarity) {
+        throw new Error('The server returned an unexpected result (missing cut/color/clarity). Please try again.');
+      }
       setResult(data);
       if (isFlowActive) {
         sessionStorage.setItem('faceted_flow_identify_result', JSON.stringify(data));
@@ -208,6 +241,7 @@ export default function FeatureIdentification() {
 
   const accent1 = 'linear-gradient(135deg, #8b5cf6, #06b6d4)';
   const accent2 = 'linear-gradient(135deg, #f59e0b, #ef4444)';
+  const accent3 = 'linear-gradient(135deg, #10b981, #14b8a6)';
 
   const canSubmit = gemType && images.length > 0 && !processing;
   const showClear = Boolean(gemType || images.length > 0 || result || error);
@@ -222,7 +256,7 @@ export default function FeatureIdentification() {
       {isFlowActive && <FacetedFlowTracker currentStep={2} />}
 
       {isFlowActive && (
-        <div className="flex items-center justify-between mb-6 max-w-3xl mx-auto w-full animate-fade-in">
+        <div className={`flex items-center justify-between mb-6 ${result ? 'max-w-6xl' : 'max-w-3xl'} mx-auto w-full transition-all duration-300 animate-fade-in`}>
           <button
             onClick={handleBack}
             className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-cyan-400 transition-colors bg-white/5 border border-white/10 px-3.5 py-2 rounded-xl active:scale-[0.98] cursor-pointer font-semibold shadow-lg"
@@ -241,13 +275,36 @@ export default function FeatureIdentification() {
         </h1>
         <p className="text-center text-sm sm:text-base opacity-60 max-w-2xl mx-auto px-4">
           Choose a gem type, upload one or more gemstone images, and run our AI models to
-          identify the <strong>cut</strong> (shape and style) and <strong>color</strong>{' '}
-          (hue and saturation).
+          identify the <strong>cut</strong> (shape and style), <strong>color</strong>{' '}
+          (hue and intensity), and <strong>clarity</strong>.
         </p>
       </header>
 
+      {/* Sub-tabs: 4C identification vs carat tester (hidden inside the auth flow) */}
+      {!isFlowActive && (
+        <div className="flex justify-center gap-2 mb-6 sm:mb-8">
+          {([['identify', 'Cut · Color · Clarity'], ['carat', 'Carat']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition cursor-pointer border ${
+                tab === key
+                  ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white border-transparent'
+                  : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {tab === 'carat' && !isFlowActive && <CaratTester />}
+
       {/* Single Vertical Card Layout */}
-      <section className="glass-panel p-4 sm:p-8 flex flex-col gap-6 sm:gap-7 max-w-3xl mx-auto w-full relative">
+      {tab === 'identify' && !result && (
+        <section className="glass-panel p-4 sm:p-8 flex flex-col gap-6 sm:gap-7 max-w-3xl mx-auto w-full relative">
         {isFlowActive && authResult && (
           <div className={`p-4 rounded-xl border flex items-center justify-between gap-4 shadow-sm ${
             authResult?.ensemble_result?.prediction === 'Synthetic'
@@ -275,27 +332,13 @@ export default function FeatureIdentification() {
           <span className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 text-white font-bold inline-flex items-center justify-center text-sm">1</span>
           <div className="flex-1 flex flex-col gap-3 min-w-0">
             <label className="text-sm text-gray-400 uppercase tracking-wider font-semibold">Gem type</label>
-            <div className="relative w-full" ref={dropdownRef}>
-              <div
-                onClick={() => !processing && setIsDropdownOpen(!isDropdownOpen)}
-                className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3.5 text-sm flex justify-between items-center text-left transition ${
-                  processing
-                    ? 'opacity-50 cursor-not-allowed'
-                    : 'hover:bg-white/5 active:scale-95 cursor-pointer'
-                }`}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    if (!processing) setIsDropdownOpen(!isDropdownOpen);
-                  }
-                }}
-              >
+            
+            {isFlowActive ? (
+              <div className="w-full bg-black/40 border border-white/10 opacity-80 rounded-xl px-4 py-3.5 text-sm flex justify-between items-center text-left cursor-not-allowed select-none">
                 {gemType ? (
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <span
-                      className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_currentColor] shrink-0"
+                      className="w-2.5 h-2.5 rounded-full shrink-0 shadow-[0_0_8px_currentColor]"
                       style={{
                         backgroundColor: getGemColor(gemType),
                         color: getGemColor(gemType),
@@ -306,82 +349,120 @@ export default function FeatureIdentification() {
                 ) : (
                   <span className="text-white/40 font-medium truncate">Select type...</span>
                 )}
+                <Lock className="w-4 h-4 text-gray-400 shrink-0" />
+              </div>
+            ) : (
 
-                <div className="flex items-center gap-2 shrink-0">
-                  {gemType && !processing ? (
-                    <span
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setGemType('');
-                      }}
-                      className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-white/10 text-white/40 hover:text-white/80 transition cursor-pointer"
-                      title="Clear selection"
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
+
+              <div className="relative w-full" ref={dropdownRef}>
+                <div
+                  onClick={() => !processing && setIsDropdownOpen(!isDropdownOpen)}
+                  className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3.5 text-sm flex justify-between items-center text-left transition ${
+                    processing
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'hover:bg-white/5 active:scale-95 cursor-pointer'
+                  }`}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      if (!processing) setIsDropdownOpen(!isDropdownOpen);
+                    }
+                  }}
+                >
+                  {gemType ? (
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_currentColor] shrink-0"
+                        style={{
+                          backgroundColor: getGemColor(gemType),
+                          color: getGemColor(gemType),
+                        }}
+                      />
+                      <span className="font-semibold text-white truncate">{gemType}</span>
+                    </div>
+                  ) : (
+                    <span className="text-white/40 font-medium truncate">Select type...</span>
+                  )}
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {gemType && !processing ? (
+                      <span
+                        onClick={(e) => {
                           e.stopPropagation();
                           setGemType('');
-                        }
-                      }}
-                    >
-                      <X className="w-3.5 h-3.5 hover:text-red-600" strokeWidth={3} />
-                    </span>
-                  ) : (
-                    <ChevronDown
-                      className={`w-4 h-4 text-white/50 transition-transform duration-200 ${
-                        isDropdownOpen ? 'rotate-180' : ''
-                      }`}
-                    />
-                  )}
+                        }}
+                        className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-white/10 text-white/40 hover:text-white/80 transition cursor-pointer"
+                        title="Clear selection"
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setGemType('');
+                          }
+                        }}
+                      >
+                        <X className="w-3.5 h-3.5 hover:text-red-600" strokeWidth={3} />
+                      </span>
+                    ) : (
+                      <ChevronDown
+                        className={`w-4 h-4 text-white/50 transition-transform duration-200 ${
+                          isDropdownOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {isDropdownOpen && (
-                <div className="absolute top-full mt-2 left-0 w-full bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden py-1.5 animate-fade-in-pure">
-                  {gemTypes.map((g) => (
-                    <button
-                      key={g}
-                      type="button"
-                      onClick={() => {
-                        setGemType(g);
-                        setIsDropdownOpen(false);
-                      }}
-                      className={`w-full px-4 py-2.5 text-left hover:bg-white/5 transition flex items-center justify-between group cursor-pointer ${
-                        gemType === g ? 'bg-white/5' : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full transition-transform group-hover:scale-110 shrink-0"
-                          style={{ backgroundColor: getGemColor(g) }}
-                        />
-                        <span className="font-semibold text-white text-sm truncate">{g}</span>
-                      </div>
-
-                      {gemType === g && (
-                        <svg
-                          className="w-4 h-4 text-blue-400 shrink-0"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2.5"
-                            d="M5 13l4 4L19 7"
+                {isDropdownOpen && (
+                  <div className="absolute top-full mt-2 left-0 w-full bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden py-1.5 animate-fade-in-pure">
+                    {gemTypes.map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => {
+                          setGemType(g);
+                          setIsDropdownOpen(false);
+                        }}
+                        className={`w-full px-4 py-2.5 text-left hover:bg-white/5 transition flex items-center justify-between group cursor-pointer ${
+                          gemType === g ? 'bg-white/5' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full transition-transform group-hover:scale-110 shrink-0"
+                            style={{ backgroundColor: getGemColor(g) }}
                           />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+                          <span className="font-semibold text-white text-sm truncate">{g}</span>
+                        </div>
+
+                        {gemType === g && (
+                          <svg
+                            className="w-4 h-4 text-blue-400 shrink-0"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="2.5"
+                              d="M5 13l4 4L19 7"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
+
 
         {/* Step 2: Upload images dropzone or pre-uploaded flow image */}
         <div className="flex gap-3 sm:gap-4 items-start">
@@ -438,7 +519,7 @@ export default function FeatureIdentification() {
               </div>
             )}
 
-            {images.length > 0 && (
+            {images.length > 0 && !isFlowActive && (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(90px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
                 {images.map((img) => (
                   <div key={img.id} className="relative rounded-xl overflow-hidden bg-black/30 border border-white/10 aspect-square flex flex-col">
@@ -493,11 +574,12 @@ export default function FeatureIdentification() {
           )}
         </div>
       </section>
+      )}
 
-      {error && <div className="mt-4 py-4 px-5 rounded-xl bg-red-500/10 border border-red-500/35 text-red-200 text-sm max-w-3xl mx-auto w-full">{error}</div>}
+      {tab === 'identify' && error && <div className="mt-4 py-4 px-5 rounded-xl bg-red-500/10 border border-red-500/35 text-red-200 text-sm max-w-3xl mx-auto w-full">{error}</div>}
 
-      {result && (
-        <section className="glass-panel mt-8 p-6 sm:p-8 flex flex-col gap-6 animate-slide-up max-w-3xl mx-auto w-full">
+      {tab === 'identify' && result?.aggregate && (
+        <section className="glass-panel mt-4 p-6 sm:p-8 flex flex-col gap-6 animate-slide-up max-w-6xl mx-auto w-full">
           <div className="flex justify-between items-baseline gap-4 flex-wrap border-b border-white/10 pb-4">
             <h2 className="text-xl font-bold text-white">Identification Result</h2>
             <div className="flex gap-2 text-gray-400 text-sm">
@@ -529,7 +611,7 @@ export default function FeatureIdentification() {
             </div>
           )}
 
-          <div className="flex flex-col gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white/5 border border-white/10 rounded-2xl p-5 sm:p-6 flex flex-col gap-4">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-lg font-semibold text-white">Cut</h3>
@@ -556,7 +638,7 @@ export default function FeatureIdentification() {
             <div className="bg-white/5 border border-white/10 rounded-2xl p-5 sm:p-6 flex flex-col gap-4">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-lg font-semibold text-white">Color</h3>
-                <span className="text-xs uppercase tracking-wider py-1 px-2.5 rounded-full text-white font-semibold" style={{ background: accent2 }}>DINOv2 multi-head</span>
+                <span className="text-xs uppercase tracking-wider py-1 px-2.5 rounded-full text-white font-semibold" style={{ background: accent2 }}>DINOv2 classifier</span>
               </div>
               <div className="grid grid-cols-2 gap-4 border-b border-white/5 pb-4">
                 <div>
@@ -565,15 +647,29 @@ export default function FeatureIdentification() {
                   <div className="text-xs text-gray-400 mt-1">{pct(result.aggregate.color.hue.confidence)} confidence</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Saturation</div>
-                  <div className="text-2xl font-bold bg-gradient-to-r from-violet-500 to-cyan-500 bg-clip-text text-transparent capitalize">{result.aggregate.color.saturation.label}</div>
-                  <div className="text-xs text-gray-400 mt-1">{pct(result.aggregate.color.saturation.confidence)} confidence</div>
+                  <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Intensity</div>
+                  <div className="text-2xl font-bold bg-gradient-to-r from-violet-500 to-cyan-500 bg-clip-text text-transparent capitalize">{result.aggregate.color.intensity.label}</div>
+                  <div className="text-xs text-gray-400 mt-1">{pct(result.aggregate.color.intensity.confidence)} confidence</div>
                 </div>
               </div>
               <div className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Hue distribution</div>
               <ProbBars probs={result.aggregate.color.hue_probs} accent={accent2} />
-              <div className="text-xs text-gray-400 uppercase tracking-wider font-semibold mt-2">Saturation distribution</div>
-              <ProbBars probs={result.aggregate.color.saturation_probs} accent={accent2} />
+              <div className="text-xs text-gray-400 uppercase tracking-wider font-semibold mt-2">Intensity distribution</div>
+              <ProbBars probs={result.aggregate.color.intensity_probs} accent={accent2} />
+            </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-5 sm:p-6 flex flex-col gap-4">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-lg font-semibold text-white">Clarity</h3>
+                <span className="text-xs uppercase tracking-wider py-1 px-2.5 rounded-full text-white font-semibold" style={{ background: accent3 }}>EfficientNetV2</span>
+              </div>
+              <div className="border-b border-white/5 pb-4">
+                <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Grade</div>
+                <div className="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent capitalize">{result.aggregate.clarity.grade.label}</div>
+                <div className="text-xs text-gray-400 mt-1">{pct(result.aggregate.clarity.grade.confidence)} confidence</div>
+              </div>
+              <div className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Clarity distribution</div>
+              <ProbBars probs={result.aggregate.clarity.clarity_probs} accent={accent3} />
             </div>
           </div>
 
@@ -604,17 +700,23 @@ export default function FeatureIdentification() {
                     </div>
 
                     <div className="flex justify-between items-center text-sm gap-2">
-                      <span className="text-gray-400 text-xs uppercase tracking-wider">Sat</span>
-                      <span className="capitalize font-medium text-white">{p.color.saturation.label}</span>
-                      <span className="text-gray-400 text-xs">{pct(p.color.saturation.confidence)}</span>
+                      <span className="text-gray-400 text-xs uppercase tracking-wider">Intensity</span>
+                      <span className="capitalize font-medium text-white">{p.color.intensity.label}</span>
+                      <span className="text-gray-400 text-xs">{pct(p.color.intensity.confidence)}</span>
+                    </div>
+
+                    <div className="flex justify-between items-center text-sm gap-2">
+                      <span className="text-gray-400 text-xs uppercase tracking-wider">Clarity</span>
+                      <span className="capitalize font-medium text-white">{p.clarity.grade.label}</span>
+                      <span className="text-gray-400 text-xs">{pct(p.clarity.grade.confidence)}</span>
                     </div>
                   </div>
                 ))}
               </div>
             </details>
           )}
-          {isFlowActive && (
-            <div className="mt-6 pt-6 border-t border-white/10 w-full flex flex-col gap-3">
+          <div className="mt-6 pt-6 border-t border-white/10 w-full flex flex-col gap-3">
+            {isFlowActive && (
               <button
                 type="button"
                 onClick={handleProceed}
@@ -622,8 +724,15 @@ export default function FeatureIdentification() {
               >
                 Proceed to Value Estimation →
               </button>
-            </div>
-          )}
+            )}
+            <button
+              type="button"
+              onClick={handleReset}
+              className="w-full btn-secondary py-3.5 sm:py-4 text-sm sm:text-base cursor-pointer"
+            >
+              Reset / Identify Another Gem
+            </button>
+          </div>
         </section>
       )}
     </div>

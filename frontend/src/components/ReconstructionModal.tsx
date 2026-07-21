@@ -1,6 +1,5 @@
 "use client";
 
-
 import type { PipelineStatus } from "@/services/cutApi";
 
 interface StepIconProps {
@@ -138,7 +137,8 @@ export default function ReconstructionModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in-pure">
+    <div className="fixed inset-0 z-[99999999] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in-pure">
+      <div className="hide-nav-footer-trigger hidden" />
       <div className="bg-[#0c0d18]/98 border border-white/30 rounded-2xl p-6 w-full max-w-lg relative overflow-hidden shadow-[0_0_50px_-12px_rgba(0,0,0,0.8),0_0_20px_rgba(255,255,255,0.05)] animate-fade-in">
         {/* Glowing top line */}
         <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${

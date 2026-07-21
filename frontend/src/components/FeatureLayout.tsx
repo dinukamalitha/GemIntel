@@ -9,22 +9,24 @@ interface FeatureLayoutProps<T = unknown> {
   buttonText: string;
   mockDelay?: number;
   apiEndpoint?: string;
+  gemType?: string;
   renderResult?: (result: T) => React.ReactNode;
   onSuccess?: (file: File, result: T) => void;
   customFooter?: (result: T, handleReset: () => void) => React.ReactNode;
   children?: React.ReactNode;
 }
 
-export default function FeatureLayout<T = unknown>({ 
-  title, 
-  description, 
-  buttonText, 
+export default function FeatureLayout<T = unknown>({
+  title,
+  description,
+  buttonText,
   mockDelay = 2500,
   apiEndpoint,
+  gemType,
   renderResult,
   onSuccess,
   customFooter,
-  children 
+  children
 }: FeatureLayoutProps<T>) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<string | null>(null);
@@ -53,20 +55,24 @@ export default function FeatureLayout<T = unknown>({
       }
 
       setIsAnalyzing(true);
-      
+
       // Step 1: Validation filter phase (Total 1.8s, rotating messages every 600ms)
       setAnalysisStatus('Scanning pixel grids for synthetic artifacts...');
-      
+
       // Trigger API fetch in the background immediately
       const fetchPromise = (async () => {
         const endpoint = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000'}${apiEndpoint}`;
         const formData = new FormData();
         formData.append('file', file);
+        if (gemType) {
+          formData.append('gem_type', gemType);
+        }
 
         const response = await fetch(endpoint, {
           method: 'POST',
           body: formData,
         });
+
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null);
@@ -79,14 +85,26 @@ export default function FeatureLayout<T = unknown>({
       // Rotate messages with 600ms delays to enforce the 1.8s minimum validation time
       await new Promise(resolve => setTimeout(resolve, 600));
       setAnalysisStatus('Analyzing frequency spectrum distribution (FFT/DCT)...');
-      
+
       await new Promise(resolve => setTimeout(resolve, 600));
       setAnalysisStatus('Running EfficientNet-B0 CNN validation filter...');
-      
+
       await new Promise(resolve => setTimeout(resolve, 600));
 
       try {
         const result = await fetchPromise;
+
+        if (result && result.score !== undefined) {
+          console.log(`[Telemetry] Score: ${result.score}`);
+        }
+
+        if (result.status === 'invalid input') {
+          setErrorMessage(result.message || 'The image entered is not a gem. Please input a valid gem image.');
+          setIsAnalyzing(false);
+          setAnalysisStatus(null);
+          return;
+        }
+
         const isAi = result.status === 'ai_generated' || result.filter_result?.is_ai_generated;
 
         if (isAi) {
@@ -100,13 +118,13 @@ export default function FeatureLayout<T = unknown>({
           // Step 2: Gemstone Authentication phase (Total 1.8s, rotating messages every 600ms)
           setAnalysisStatus('Initializing deep feature extractors...');
           await new Promise(resolve => setTimeout(resolve, 600));
-          
+
           setAnalysisStatus('Evaluating inclusions (EfficientNet-B4 + XGBoost)...');
           await new Promise(resolve => setTimeout(resolve, 600));
-          
+
           setAnalysisStatus('Finalizing origin classification payload...');
           await new Promise(resolve => setTimeout(resolve, 600));
-          
+
           setAnalysisResult(result);
           setShowResult(true);
           if (onSuccess && file) {
@@ -145,19 +163,23 @@ export default function FeatureLayout<T = unknown>({
 
       <main className="flex flex-col gap-8 sm:gap-12 items-center w-full">
         {!showResult && (
-          <ImageUploader 
-            key={resetKey}
-            onAnalyze={handleAnalyze} 
-            isAnalyzing={isAnalyzing} 
-            analysisStatus={analysisStatus}
-            buttonText={buttonText} 
-          />
+          <div className="w-full max-w-xl flex flex-col items-center gap-6">
+            {children}
+            <ImageUploader
+              key={resetKey}
+              onAnalyze={handleAnalyze}
+              isAnalyzing={isAnalyzing}
+              analysisStatus={analysisStatus}
+              buttonText={buttonText}
+            />
+          </div>
         )}
+
 
         {errorMessage && (
           <div className="mt-6 p-4 rounded-xl bg-red-500/10 border border-red-500/25 text-red-400 flex flex-col items-center gap-4 text-center max-w-md">
             <span className="font-semibold text-sm">{errorMessage}</span>
-            <button 
+            <button
               onClick={handleReset}
               className="bg-white/5 border border-white/10 hover:bg-white/10 text-white py-1.5 px-5 rounded-lg cursor-pointer text-xs font-semibold transition"
             >
@@ -172,7 +194,7 @@ export default function FeatureLayout<T = unknown>({
             {customFooter ? (
               customFooter(analysisResult as T, handleReset)
             ) : (
-              <button 
+              <button
                 onClick={handleReset}
                 className="btn-secondary w-full py-3.5 sm:py-4 text-sm sm:text-base mt-2"
               >

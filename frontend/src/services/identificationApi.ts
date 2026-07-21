@@ -14,22 +14,28 @@ export interface CutBlock {
 
 export interface ColorBlock {
   hue: LabelResult;
-  saturation: LabelResult;
+  intensity: LabelResult;
   hue_probs: Record<string, number>;
-  saturation_probs: Record<string, number>;
+  intensity_probs: Record<string, number>;
+}
+
+export interface ClarityBlock {
+  grade: LabelResult;
+  clarity_probs: Record<string, number>;
 }
 
 export interface IdentifyResponse {
   status: string;
   gem_type: string;
   image_count: number;
-  aggregate: { cut: CutBlock; color: ColorBlock };
-  per_image: Array<{ filename: string; cut: CutBlock; color: ColorBlock }>;
+  aggregate: { cut: CutBlock; color: ColorBlock; clarity: ClarityBlock };
+  per_image: Array<{ filename: string; cut: CutBlock; color: ColorBlock; clarity: ClarityBlock }>;
 }
 
 export interface IdentifyClasses {
   cut: { shape: string[]; cut_style: string[] };
-  color: { hue: string[]; saturation: string[] };
+  color: { hue: string[]; intensity: string[]; combined: string[] };
+  clarity: string[];
 }
 
 

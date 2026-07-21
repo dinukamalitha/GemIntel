@@ -211,12 +211,12 @@ select:-webkit-autofill:focus {
   transition: background-color 5000s ease-in-out 0s;
 }
 
-/* Hide navbar and footer dynamically when 3D viewer is active */
-body.hide-nav-footer nav,
-body.hide-nav-footer footer {
+/* Hide navbar and footer dynamically when 3D viewer or modal is active */
+body:has(.hide-nav-footer-trigger) nav,
+body:has(.hide-nav-footer-trigger) footer {
   display: none !important;
 }
 
-body.hide-nav-footer main {
+body:has(.hide-nav-footer-trigger) main {
   padding-top: 0 !important;
 }

@@ -150,7 +150,10 @@ export default function Home() {
               </div>
             </div>
 
-            <button className="w-full btn-primary text-sm py-3 cursor-pointer group-hover:brightness-105 style={{ background: 'linear-gradient(135deg, #a855f7, #6366f1)' }}">
+            <button 
+              className="w-full btn-primary text-sm py-3 cursor-pointer group-hover:brightness-105"
+              style={{ background: 'linear-gradient(135deg, #a855f7, #6366f1)' }}
+            >
               Start Guided Pipeline →
             </button>
           </div>

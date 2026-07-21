@@ -1,85 +1,80 @@
-"""
-Valuation API endpoints for gem price prediction
-"""
+from datetime import date
+
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-from typing import Dict, Optional
-from app.services.valuation_service import predict_price, get_factor_options
+
+from app.schemas.valuation import ValuationRequest, ValuationResponse
+from app.services.economic_history_service import (
+    EconomicHistoryCoverageError,
+    EconomicHistoryError,
+    economic_context_for_date,
+    economic_history_metadata,
+)
+from app.services.valuation_service import (
+    CATEGORICAL_OPTIONS,
+    EXPECTED_FEATURES,
+    ValuationInputError,
+    ValuationModelError,
+    predict_price,
+    valuation_model_metadata,
+)
+
 
 router = APIRouter()
 
 
-class GemFactorsInput(BaseModel):
-    """Gem characteristics for price prediction"""
-    weight_ct: float = Field(..., gt=0, le=10, description="Weight in carats")
-    gem_type: str = Field(..., description="Type of gem (Ceylon Blue Sapphire, Ceylon Blue Spinel, or Ceylon Blue Topaz)")
-    colour_intensity: str = Field(..., description="Color intensity (Intense, Royal Blue, or Vivid)")
-    clarity: str = Field(..., description="Clarity grade (IF, VS1, VS2, VVS1, or VVS2)")
-    shape: str = Field(..., description="Cut shape")
-    cut: str = Field(..., description="Cut type")
-    enhancement: str = Field(default="Unheated", description="Enhancement type")
-
-
-class EconomicFactorsInput(BaseModel):
-    """Economic factors for price prediction"""
-    ccpi: float = Field(default=95.0, description="Consumer Cost Price Index")
-    ccpi_yoy: float = Field(default=4.5, description="CCPI Year-over-Year change")
-    slfr: float = Field(default=8.5, description="Sri Lanka Floating Rate")
-    gold_lkr: float = Field(default=206000, description="Gold price in LKR")
-    gdp_growth: float = Field(default=2.5, description="GDP growth rate")
-    exchange_rate: float = Field(default=155.0, description="Monthly average exchange rate")
-
-
-class PricePredictionRequest(BaseModel):
-    """Request body for price prediction"""
-    gem_factors: GemFactorsInput
-    economic_factors: Optional[EconomicFactorsInput] = None
-
-
-class PricePredictionResponse(BaseModel):
-    """Response for price prediction"""
-    status: str
-    predicted_price_lkr: float
-    predicted_log_price: float
-    confidence: float
-    breakdown: Dict
-    input_factors: Dict
-
-
-@router.post("/predict-price", response_model=PricePredictionResponse)
-async def predict_gem_price(request: PricePredictionRequest):
-    """
-    Predict gem price based on gem characteristics and economic factors.
-    
-    Uses ensemble of XGBoost and LightGBM models trained on historical gem pricing data.
-    """
-    try:
-        # Convert Pydantic models to dicts
-        gem_factors = request.gem_factors.dict()
-        economic_factors = request.economic_factors.dict() if request.economic_factors else {}
-        
-        # Make prediction
-        result = predict_price(gem_factors, economic_factors)
-        
-        return result
-        
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=f"Model error: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Prediction error: {str(e)}")
-
-
 @router.get("/factor-options")
-async def get_factor_options_endpoint():
-    """
-    Get all available options for gem and economic factors.
-    Useful for populating frontend dropdowns and form validation.
-    """
+def factor_options():
+    """Return only values seen by the fitted categorical encoders."""
     try:
-        options = get_factor_options()
-        return {
-            "status": "success",
-            "factor_options": options
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving factor options: {str(e)}")
+        model_metadata = valuation_model_metadata()
+        history_metadata = economic_history_metadata()
+    except (ValuationModelError, EconomicHistoryError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return {
+        "factor_options": {
+            "gem_factors": {
+                **CATEGORICAL_OPTIONS,
+                "weight_ct": {"min": 0, "max": 1000, "unit": "carat"},
+            },
+            "economic_factors": {
+                "fields": [
+                    "ccpi",
+                    "ccpi_yoy",
+                    "slfr",
+                    "gold_lkr",
+                    "gdp_growth",
+                    "exchange_rate",
+                ],
+                "required_monthly_lags": 3,
+                "historical_database": history_metadata,
+            },
+        },
+        "model": model_metadata,
+    }
+
+
+@router.get("/economic-context")
+def economic_context(valuation_date: date):
+    """Return the current and three prior monthly snapshots for a date."""
+    try:
+        context = economic_context_for_date(valuation_date)
+    except EconomicHistoryCoverageError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except EconomicHistoryError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        **context,
+        "current": context["current"].model_dump(),
+        "lags": [snapshot.model_dump() for snapshot in context["lags"]],
+    }
+
+
+@router.post("/predict-price", response_model=ValuationResponse)
+def valuation_prediction(request: ValuationRequest):
+    try:
+        return predict_price(request)
+    except ValuationInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValuationModelError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

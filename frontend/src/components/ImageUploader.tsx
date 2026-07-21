@@ -112,11 +112,7 @@ export default function ImageUploader({
             onClick={() => onAnalyze(selectedFile)}
             disabled={isAnalyzing}
           >
-            {isAnalyzing ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="spinner"></span> Analyzing...
-              </span>
-            ) : buttonText}
+            {isAnalyzing ? "Analyzing..." : buttonText}
           </button>
         </div>
       )}
