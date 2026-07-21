@@ -1,17 +1,17 @@
 import React from 'react';
-import { 
-  Gem, 
-  Shield, 
-  Code, 
-  Cpu, 
-  Award, 
-  GraduationCap, 
-  Target, 
-  Compass, 
-  TrendingUp, 
-  Sparkles, 
-  Scale, 
-  Eye, 
+import {
+  Gem,
+  Shield,
+  Code,
+  Cpu,
+  Award,
+  GraduationCap,
+  Target,
+  Compass,
+  TrendingUp,
+  Sparkles,
+  Scale,
+  Eye,
   Scissors,
   User,
   Phone,
@@ -80,8 +80,8 @@ export default function AboutPage() {
               {ABOUT_PROJECT_INFO.backgroundParagraphs.map((paragraph, idx) => {
                 const isHighlight = idx === ABOUT_PROJECT_INFO.backgroundParagraphs.length - 1;
                 return (
-                  <p 
-                    key={idx} 
+                  <p
+                    key={idx}
                     className={isHighlight ? "text-cyan-300 font-medium bg-cyan-500/5 p-4 rounded-xl border border-cyan-500/10" : ""}
                   >
                     {paragraph}
@@ -200,7 +200,7 @@ export default function AboutPage() {
 
         {/* Section 6: Research Guidance & Project Team */}
         <section className="max-w-5xl mx-auto space-y-10">
-          
+
           {/* Supervisors Subsection */}
           <div className="space-y-4">
             <div className="text-center space-y-1">
@@ -244,7 +244,7 @@ export default function AboutPage() {
           <div className="space-y-4">
             <div className="text-center space-y-1">
               <h2 className="text-xl sm:text-3xl font-extrabold text-white">
-                {ABOUT_PROJECT_INFO.teamName} Members
+                {ABOUT_PROJECT_INFO.teamName}
               </h2>
               <p className="text-xs sm:text-sm text-gray-400">
                 Final Year Research Team • {ABOUT_PROJECT_INFO.department}, {ABOUT_PROJECT_INFO.university}
@@ -283,7 +283,7 @@ export default function AboutPage() {
         {/* Section 7: Team Ozone Footer Card */}
         <section className="max-w-3xl mx-auto text-center glass-panel p-8 sm:p-12 border border-white/5 bg-slate-950/20 shadow-xl relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-cyan-500/5 blur-3xl pointer-events-none" />
-          
+
           <div className="flex justify-center mb-6">
             <div className="p-4 bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 rounded-2xl text-cyan-400">
               <Code className="w-8 h-8" />
@@ -296,7 +296,7 @@ export default function AboutPage() {
           <p className="text-xs sm:text-sm text-cyan-400 font-semibold mb-6 uppercase tracking-wider">
             {ABOUT_PROJECT_INFO.department} • {ABOUT_PROJECT_INFO.university}
           </p>
-          
+
           <p className="text-sm sm:text-base text-gray-300 leading-relaxed max-w-xl mx-auto">
             {ABOUT_PROJECT_INFO.projectName} is built as a Final Year Research Project by {ABOUT_PROJECT_INFO.teamName} at the {ABOUT_PROJECT_INFO.university}. The project focuses on bridging the gap between gemology and computer vision to deliver highly accurate, automated gemstone analytics.
           </p>

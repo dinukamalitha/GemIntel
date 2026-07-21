@@ -81,28 +81,7 @@ async def upload_images(
             f"Provide between {MIN_IMAGES} and {MAX_IMAGES} images. Got {len(images)}.",
         )
 
-    # --- Global Domain Filter check ---
-    from PIL import Image as PILImage
-    import io
-    from app.services.domain_filter_service import validate_gem_image
 
-    for img in images:
-        try:
-            img.file.seek(0)
-            raw = img.file.read()
-            pil_img = PILImage.open(io.BytesIO(raw)).convert("RGB")
-            img.file.seek(0)
-        except Exception as e:
-            raise HTTPException(400, f"Cannot process image {img.filename}: {e}")
-        
-        is_valid, score = validate_gem_image(pil_img)
-        print(f"[Telemetry] Score: {score}")
-        if not is_valid:
-            return {
-                "status": "invalid input",
-                "message": f"The image entered is not a gem: {img.filename}. Please input valid gem images.",
-                "score": score
-            }
 
     session_id = uuid.uuid4().hex[:12]
     valid_exts = {".png", ".jpg", ".jpeg", ".webp"}

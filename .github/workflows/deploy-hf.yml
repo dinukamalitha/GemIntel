@@ -38,6 +38,9 @@ jobs:
           git lfs track "*.pth"
           git lfs track "*.pt"
           git lfs track "*.pkl"
+          git lfs track "*.joblib"
+          git lfs track "*.onnx"
+          git lfs track "*.bin"
           git add .gitattributes
           
           # Add and commit backend files
