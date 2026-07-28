@@ -13,6 +13,7 @@ Species (gem_type) only supplies the specific gravity (SG) lookup.
 """
 
 import io
+import math
 import cv2
 import numpy as np
 from PIL import Image, ImageOps
@@ -197,12 +198,7 @@ def estimate_carat(
         # photo's orientation or axis was misread.
         warnings.append("Depth exceeds the footprint — check the SIDE photo orientation.")
 
-    if cut_shape in USE_DIAMETER_SQUARED:
-        area_term = ((L_mm + W_mm) / 2.0) ** 2
-    else:
-        area_term = L_mm * W_mm
-
-    carat = area_term * D_mm * SG[gem_type] * SHAPE_FACTOR[cut_shape] * NATIVE_CUT_FACTOR
+    carat = _carat_from_dims(L_mm, W_mm, D_mm, gem_type, cut_shape)
 
     return {
         "gem_type": gem_type,
@@ -217,5 +213,55 @@ def estimate_carat(
         "specific_gravity": SG[gem_type],
         "shape_factor": SHAPE_FACTOR[cut_shape],
         "scale_px_per_mm": {"top": round(top_ppm, 2), "side": round(side_ppm, 2)},
+        "source": "image",
+        "warnings": warnings,
+    }
+
+
+def _carat_from_dims(L_mm: float, W_mm: float, D_mm: float, gem_type: str, cut_shape: str) -> float:
+    """The shared weight formula: carat = area x depth x SG x shape_factor.
+    Round/cushion outlines use Diameter^2 instead of L x W."""
+    if cut_shape in USE_DIAMETER_SQUARED:
+        area_term = ((L_mm + W_mm) / 2.0) ** 2
+    else:
+        area_term = L_mm * W_mm
+    return area_term * D_mm * SG[gem_type] * SHAPE_FACTOR[cut_shape] * NATIVE_CUT_FACTOR
+
+
+def estimate_carat_manual(
+    gem_type: str,
+    cut_shape: str,
+    length_mm: float,
+    width_mm: float,
+    depth_mm: float,
+) -> dict:
+    """Carat estimate from user-supplied millimetre measurements (no images)."""
+    if gem_type not in SG:
+        raise ValueError(f"gem_type must be one of {sorted(SG)}")
+    if cut_shape not in SHAPE_FACTOR:
+        raise ValueError(f"cut_shape must be one of {sorted(SHAPE_FACTOR)}")
+    for name, value in (("length_mm", length_mm), ("width_mm", width_mm), ("depth_mm", depth_mm)):
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be a positive number of millimetres")
+
+    warnings = []
+    if depth_mm > max(length_mm, width_mm):
+        warnings.append("Depth exceeds the footprint (length/width) — double-check the measurements.")
+
+    carat = _carat_from_dims(length_mm, width_mm, depth_mm, gem_type, cut_shape)
+
+    return {
+        "gem_type": gem_type,
+        "cut_shape": cut_shape,
+        "dimensions_mm": {
+            "length": round(length_mm, 2),
+            "width": round(width_mm, 2),
+            "depth": round(depth_mm, 2),
+        },
+        "carat": round(carat, 2),
+        "specific_gravity": SG[gem_type],
+        "shape_factor": SHAPE_FACTOR[cut_shape],
+        "scale_px_per_mm": None,
+        "source": "manual",
         "warnings": warnings,
     }

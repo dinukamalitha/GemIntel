@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { Upload, X } from 'lucide-react';
 import {
   estimateCarat,
+  estimateCaratManual,
   fetchCaratOptions,
   type CaratResult,
 } from '@/services/caratApi';
@@ -87,6 +88,12 @@ export default function CaratTester() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CaratResult | null>(null);
 
+  // Estimate from photos (default) or from typed measurements.
+  const [mode, setMode] = useState<'photos' | 'measurements'>('photos');
+  const [lengthMm, setLengthMm] = useState('');
+  const [widthMm, setWidthMm] = useState('');
+  const [depthMm, setDepthMm] = useState('');
+
   useEffect(() => {
     fetchCaratOptions()
       .then((o) => {
@@ -133,31 +140,94 @@ export default function CaratTester() {
     }
   };
 
+  const handleManualSubmit = async () => {
+    const L = parseFloat(lengthMm);
+    const W = parseFloat(widthMm);
+    const D = parseFloat(depthMm);
+    if (!(L > 0) || !(W > 0) || !(D > 0)) {
+      toast.error('Enter positive length, width and depth in mm.');
+      return;
+    }
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await estimateCaratManual({
+        gemType,
+        cutShape,
+        lengthMm: L,
+        widthMm: W,
+        depthMm: D,
+      });
+      setResult(res);
+      res.warnings?.forEach((w) => toast(w, { icon: '⚠️' }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const selectClass =
     'w-full bg-slate-950/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/25 focus:border-cyan-500/50';
 
   return (
     <div className="glass-panel p-5 sm:p-8 flex flex-col gap-6 max-w-3xl mx-auto w-full">
-      <p className="text-xs sm:text-sm text-gray-400 text-center -mb-1">
-        Upload a <strong>top</strong> and a <strong>side</strong> photo, each with the
-        same coin in frame as a scale reference. Weight is measured (volume &times; density),
-        not predicted.
-      </p>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        <ImagePicker
-          label="Top view"
-          hint="Straight down on the stone, coin beside it"
-          onPick={setTopImage}
-        />
-        <ImagePicker
-          label="Side view"
-          hint="Stone on its edge (shows depth), same coin"
-          onPick={setSideImage}
-        />
+      {/* Mode toggle: estimate from photos, or from typed measurements */}
+      <div className="flex justify-center gap-2">
+        {([['photos', 'From photos'], ['measurements', 'From measurements']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => {
+              if (key === mode) return;
+              setMode(key);
+              setResult(null);
+              // reset the inputs of the mode being left so nothing stale carries over
+              setLengthMm(''); setWidthMm(''); setDepthMm('');
+              setTopImage(null); setSideImage(null);
+            }}
+            className={`px-4 py-2 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+              mode === key
+                ? 'bg-white/10 text-white border-white/20'
+                : 'bg-transparent text-gray-400 border-white/10 hover:bg-white/5'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+      {mode === 'photos' ? (
+        <p className="text-xs sm:text-sm text-gray-400 text-center -mb-1">
+          Upload a <strong>top</strong> and a <strong>side</strong> photo, each with the
+          same coin in frame as a scale reference. Weight is measured (volume &times; density),
+          not predicted.
+        </p>
+      ) : (
+        <p className="text-xs sm:text-sm text-gray-400 text-center -mb-1">
+          Enter the stone&apos;s measured <strong>length</strong>, <strong>width</strong> and{' '}
+          <strong>depth</strong> in millimetres (e.g. from a caliper). Weight is computed
+          (volume &times; density), not predicted.
+        </p>
+      )}
+
+      {mode === 'photos' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <ImagePicker
+            label="Top view"
+            hint="Straight down on the stone, coin beside it"
+            onPick={setTopImage}
+          />
+          <ImagePicker
+            label="Side view"
+            hint="Stone on its edge (shows depth), same coin"
+            onPick={setSideImage}
+          />
+        </div>
+      )}
+
+      {/* Shared: gem type + cut shape */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         <div className="flex flex-col gap-2 text-left">
           <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Gem type</label>
           <select className={selectClass} value={gemType} onChange={(e) => setGemType(e.target.value)}>
@@ -174,29 +244,53 @@ export default function CaratTester() {
             ))}
           </select>
         </div>
-        <div className="flex flex-col gap-2 text-left">
-          <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Coin diameter (mm)</label>
-          <input
-            type="number"
-            step="0.1"
-            min="1"
-            value={coinDiameter}
-            onChange={(e) => setCoinDiameter(e.target.value)}
-            className={selectClass}
-          />
-        </div>
       </div>
-      <p className="text-xs text-gray-500 -mt-3 text-left">
-        Reference: Sri Lanka Rs.2 = 22.0mm (2017+, notched edge) or 28.5mm (older) &middot;
-        US quarter = 24.26mm &middot; €1 = 23.25mm
-      </p>
+
+      {mode === 'photos' ? (
+        <>
+          <div className="flex flex-col gap-2 text-left">
+            <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Coin diameter (mm)</label>
+            <input
+              type="number"
+              step="0.1"
+              min="1"
+              value={coinDiameter}
+              onChange={(e) => setCoinDiameter(e.target.value)}
+              className={selectClass}
+            />
+          </div>
+          <p className="text-xs text-gray-500 -mt-3 text-left">
+            Reference: Sri Lanka Rs.2 = 22.0mm (2017+, notched edge) or 28.5mm (older) &middot;
+            US quarter = 24.26mm &middot; €1 = 23.25mm
+          </p>
+        </>
+      ) : (
+        <div className="grid grid-cols-3 gap-5">
+          {([['length', lengthMm, setLengthMm], ['width', widthMm, setWidthMm], ['depth', depthMm, setDepthMm]] as const).map(
+            ([label, value, setter]) => (
+              <div key={label} className="flex flex-col gap-2 text-left">
+                <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider capitalize">{label} (mm)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={value}
+                  onChange={(e) => setter(e.target.value)}
+                  placeholder="0.0"
+                  className={selectClass}
+                />
+              </div>
+            ),
+          )}
+        </div>
+      )}
 
       <button
-        onClick={handleSubmit}
+        onClick={mode === 'photos' ? handleSubmit : handleManualSubmit}
         disabled={loading}
         className="btn-secondary w-full py-3.5 sm:py-4 text-sm sm:text-base disabled:opacity-50"
       >
-        {loading ? 'Measuring…' : 'Estimate Carat'}
+        {loading ? 'Estimating…' : 'Estimate Carat'}
       </button>
 
       {result && (
@@ -219,8 +313,10 @@ export default function CaratTester() {
             ))}
           </div>
           <p className="text-xs text-gray-500 text-center">
-            Scale: {result.scale_px_per_mm.top} / {result.scale_px_per_mm.side} px/mm (top/side).
-            Estimate accuracy ≈ ±10–15%; not a substitute for a calibrated scale.
+            {result.scale_px_per_mm
+              ? `Scale: ${result.scale_px_per_mm.top} / ${result.scale_px_per_mm.side} px/mm (top/side). `
+              : ''}
+            Estimate accuracy ≈ ±5–15%; not a substitute for a calibrated scale.
           </p>
           {result.warnings?.length > 0 && (
             <ul className="text-xs text-amber-400/90 list-disc list-inside space-y-1">

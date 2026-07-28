@@ -158,6 +158,16 @@ export default function Home() {
             </button>
           </div>
         </div>
+
+        {/* Direct shortcut: skip the guided auth flow, go straight to Feature Identification */}
+        <div className="text-center mt-6">
+          <Link
+            href="/four-c"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-400 hover:text-purple-300 transition-colors"
+          >
+            Skip authentication — go straight to Feature Identification →
+          </Link>
+        </div>
       </section>
     </div>
   </>

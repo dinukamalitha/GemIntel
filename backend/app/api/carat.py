@@ -1,6 +1,11 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 
-from app.services.carat_service import estimate_carat, SG, SHAPE_FACTOR
+from app.services.carat_service import (
+    estimate_carat,
+    estimate_carat_manual,
+    SG,
+    SHAPE_FACTOR,
+)
 
 router = APIRouter()
 
@@ -29,6 +34,23 @@ async def estimate(
         if not top_bytes or not side_bytes:
             raise ValueError("Both a top and a side image are required.")
         return estimate_carat(top_bytes, side_bytes, gem_type, cut_shape, coin_diameter_mm)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Carat estimation failed: {e}")
+
+
+@router.post("/estimate-manual")
+async def estimate_manual(
+    gem_type: str = Form(...),
+    cut_shape: str = Form(...),
+    length_mm: float = Form(..., description="Longest girdle dimension in mm"),
+    width_mm: float = Form(..., description="Shortest girdle dimension in mm"),
+    depth_mm: float = Form(..., description="Depth / total height in mm"),
+):
+    """Estimate carat weight from user-supplied millimetre measurements (no images)."""
+    try:
+        return estimate_carat_manual(gem_type, cut_shape, length_mm, width_mm, depth_mm)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

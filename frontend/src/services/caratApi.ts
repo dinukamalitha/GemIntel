@@ -6,12 +6,13 @@ const API_BASE =
 export interface CaratResult {
   gem_type: string;
   cut_shape: string;
-  coin_diameter_mm: number;
+  coin_diameter_mm?: number;
   dimensions_mm: { length: number; width: number; depth: number };
   carat: number;
   specific_gravity: number;
   shape_factor: number;
-  scale_px_per_mm: { top: number; side: number };
+  scale_px_per_mm: { top: number; side: number } | null;
+  source?: "image" | "manual";
   warnings: string[];
 }
 
@@ -41,6 +42,32 @@ export async function estimateCarat(params: {
   form.append("coin_diameter_mm", String(params.coinDiameterMm));
 
   const res = await fetch(`${API_BASE}/api/carat/estimate`, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail || `Estimation failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function estimateCaratManual(params: {
+  gemType: string;
+  cutShape: string;
+  lengthMm: number;
+  widthMm: number;
+  depthMm: number;
+}): Promise<CaratResult> {
+  const form = new FormData();
+  form.append("gem_type", params.gemType);
+  form.append("cut_shape", params.cutShape);
+  form.append("length_mm", String(params.lengthMm));
+  form.append("width_mm", String(params.widthMm));
+  form.append("depth_mm", String(params.depthMm));
+
+  const res = await fetch(`${API_BASE}/api/carat/estimate-manual`, {
     method: "POST",
     body: form,
   });
