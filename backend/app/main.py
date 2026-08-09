@@ -35,16 +35,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load Models on Startup
-@app.on_event("startup")
-async def startup_event():
+# Load Models Asynchronously in Background so Server Starts Immediately
+def _init_models():
     try:
         load_all_models()
     except Exception as e:
         print(f"[Error] Critical error loading models: {e}")
 
-    # Valuation has an independent lifecycle so a failure in an unrelated
-    # image model does not prevent the pricing pipelines from loading.
     try:
         import sklearn
         import traceback
@@ -53,6 +50,11 @@ async def startup_event():
     except Exception as e:
         print(f"[Error] Failed to load valuation models: {e}")
         traceback.print_exc()
+
+@app.on_event("startup")
+async def startup_event():
+    import threading
+    threading.Thread(target=_init_models, daemon=True).start()
 
 # Include all routes
 app.include_router(router)
