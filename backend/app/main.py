@@ -8,10 +8,26 @@ from app.api.cut_prediction import router as cut_router
 from app.api.carat import router as carat_router
 
 import os
+import signal
+import sys
+import traceback
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
+
+# --- Debug: log when the process receives a termination signal ---
+def _signal_handler(signum, frame):
+    sig_name = signal.Signals(signum).name
+    print(f"\n[SIGNAL] Received {sig_name} (signal {signum})", flush=True)
+    print("[SIGNAL] Traceback at time of signal:", flush=True)
+    traceback.print_stack(frame)
+    sys.stdout.flush()
+    # Re-raise so uvicorn can still do graceful shutdown
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
+
+signal.signal(signal.SIGTERM, _signal_handler)
 
 app = FastAPI(title="Dual-Branch Gem Authentication API")
 
@@ -54,6 +70,12 @@ def _init_models():
 async def startup_event():
     import threading
     threading.Thread(target=_init_models, daemon=True).start()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    print("[SHUTDOWN] FastAPI shutdown event triggered", flush=True)
+    traceback.print_stack()
+    sys.stdout.flush()
 
 # Include all routes
 app.include_router(router)
