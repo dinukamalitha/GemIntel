@@ -5,7 +5,6 @@ import torch.nn as nn
 from PIL import Image
 from torchvision import transforms
 from transformers import Dinov2Model
-
 from app.config import CUT_MODEL_PATH
 
 IMG_SIZE = 518
