@@ -16,9 +16,9 @@ load_dotenv()
 
 app = FastAPI(title="Dual-Branch Gem Authentication API")
 
-@app.get("/")
-def read_root():
-    return RedirectResponse(url="/docs")
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "service": "GemIntel API"}
 
 env_origins = os.getenv("ALLOWED_ORIGINS")
 if env_origins:

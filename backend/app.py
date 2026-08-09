@@ -1,17 +1,14 @@
 import gradio as gr
 from app.main import app as fastapi_app
 
-# Gradio interface definition (for Hugging Face Spaces compatibility)
-demo = gr.Interface(
-    fn=lambda: "GemIntel API is running successfully.",
-    inputs=None,
-    outputs="text",
-    title="GemIntel API",
-    description="FastAPI Backend for GemIntel. Access interactive Swagger API documentation at [/docs](/docs)."
-)
+# Gradio Blocks landing page (for Hugging Face Spaces compatibility and health checks)
+with gr.Blocks(title="GemIntel API") as demo:
+    gr.Markdown("# 💎 GemIntel Backend API")
+    gr.Markdown("The backend server is running successfully with ZeroGPU acceleration.")
+    gr.Markdown("👉 Interactive API Documentation: [Swagger UI (/docs)](/docs)")
 
-# Mount the Gradio demo onto FastAPI so all FastAPI routes (/api/..., /docs, /openapi.json) remain fully functional
-app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
+# Mount Gradio at root '/' so Hugging Face Space supervisor receives 200 OK
+app = gr.mount_gradio_app(fastapi_app, demo, path="/")
 
 if __name__ == "__main__":
     import uvicorn
