@@ -33,6 +33,15 @@ def root():
 def health_check():
     return {"status": "healthy", "service": "GemIntel API"}
 
+@app.get("/api/config")
+def get_config():
+    # Return a basic config matching what Gradio internal assets request
+    return {
+        "auth_required": False,
+        "root": "/",
+        "space_id": os.getenv("SPACE_ID", "dinukamalitha/GemIntel")
+    }
+
 env_origins = os.getenv("ALLOWED_ORIGINS")
 if env_origins:
     origins = [o.strip() for o in env_origins.split(",") if o.strip()]
@@ -48,7 +57,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Models will be loaded lazily on the first request to prevent blocking the startup thread on HF Spaces
+# Load Models Asynchronously in Background so Server Starts Immediately
+def _init_models():
+    try:
+        load_all_models()
+    except Exception as e:
+        print(f"[Error] Critical error loading models: {e}")
+
+    # Log memory usage after all models are loaded (helps diagnose OOM on HF Spaces)
+    try:
+        import psutil
+        proc = psutil.Process()
+        mem = proc.memory_info()
+        print(f"[Memory] RSS: {mem.rss / 1024**2:.0f} MB | VMS: {mem.vms / 1024**2:.0f} MB")
+    except ImportError:
+        pass
+
+@app.on_event("startup")
+async def startup_event():
+    import threading
+    threading.Thread(target=_init_models, daemon=True).start()
 
 
 # Include all routes

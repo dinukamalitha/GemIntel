@@ -86,16 +86,7 @@ def run_inference(
     global eff_model, gem_model, scaler, label_encoder
 
     if not eff_model or not gem_model:
-        from threading import Lock
-        _lock = Lock()
-        with _lock:
-            # Double check to prevent multiple loads
-            if not eff_model or not gem_model:
-                print("[AuthService] Lazy loading models on first inference request...")
-                load_all_models()
-
-    if not eff_model or not gem_model:
-        raise RuntimeError("Models could not be loaded.")
+        raise RuntimeError("Models are not loaded into memory.")
 
     # Normalize input to a list of PIL Images
     if isinstance(images, Image.Image):
@@ -235,4 +226,4 @@ def run_inference(
         },
         "per_image": per_image_results
     }
-
+
