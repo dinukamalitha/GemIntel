@@ -1,14 +1,12 @@
-import gradio as gr
-from app.main import app as fastapi_app
+"""
+Entry point for Hugging Face Spaces (sdk: gradio).
 
-# Gradio Blocks landing page (for Hugging Face Spaces compatibility and health checks)
-with gr.Blocks(title="GemIntel API") as demo:
-    gr.Markdown("# 💎 GemIntel Backend API")
-    gr.Markdown("The backend server is running successfully with ZeroGPU acceleration.")
-    gr.Markdown("👉 Interactive API Documentation: [Swagger UI (/docs)](/docs)")
-
-# Mount Gradio at root '/' so Hugging Face Space supervisor receives 200 OK
-app = gr.mount_gradio_app(fastapi_app, demo, path="/")
+Gradio SDK runs `python app.py`. We serve the FastAPI app directly
+with uvicorn — no Gradio Blocks mount needed. The root `/` endpoint
+in app.main returns an HTML landing page so the Space health-check
+gets HTTP 200 and marks the Space as "Running".
+"""
+from app.main import app  # noqa: F401 — used by uvicorn
 
 if __name__ == "__main__":
     import uvicorn

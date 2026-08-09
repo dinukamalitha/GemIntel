@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse
 from app.api.routes import router
 from app.api.valuation import router as valuation_router
 from app.services.auth_service import load_all_models
@@ -8,28 +8,26 @@ from app.api.cut_prediction import router as cut_router
 from app.api.carat import router as carat_router
 
 import os
-import signal
-import sys
-import traceback
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-# --- Debug: log when the process receives a termination signal ---
-def _signal_handler(signum, frame):
-    sig_name = signal.Signals(signum).name
-    print(f"\n[SIGNAL] Received {sig_name} (signal {signum})", flush=True)
-    print("[SIGNAL] Traceback at time of signal:", flush=True)
-    traceback.print_stack(frame)
-    sys.stdout.flush()
-    # Re-raise so uvicorn can still do graceful shutdown
-    signal.signal(signum, signal.SIG_DFL)
-    os.kill(os.getpid(), signum)
-
-signal.signal(signal.SIGTERM, _signal_handler)
-
 app = FastAPI(title="Dual-Branch Gem Authentication API")
+
+@app.get("/", response_class=HTMLResponse)
+def root():
+    return """
+    <!DOCTYPE html>
+    <html><head><title>GemIntel API</title></head>
+    <body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0f172a;color:#e2e8f0">
+        <div style="text-align:center">
+            <h1>💎 GemIntel Backend API</h1>
+            <p>The server is running.</p>
+            <p><a href="/docs" style="color:#60a5fa">API Documentation (Swagger UI)</a></p>
+        </div>
+    </body></html>
+    """
 
 @app.get("/health")
 def health_check():
@@ -71,11 +69,6 @@ async def startup_event():
     import threading
     threading.Thread(target=_init_models, daemon=True).start()
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    print("[SHUTDOWN] FastAPI shutdown event triggered", flush=True)
-    traceback.print_stack()
-    sys.stdout.flush()
 
 # Include all routes
 app.include_router(router)
