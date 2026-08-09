@@ -3,8 +3,9 @@ import os
 # Base directory of the project
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Model Paths
+# Model Paths & Hugging Face Hub Config
 MODELS_DIR = os.path.join(BASE_DIR, "models")
+HF_MODEL_REPO = os.getenv("HF_MODEL_REPO", "dmCoder/gemintel-models")
 VALUE_MODELS_DIR = os.path.join(MODELS_DIR, "value")
 EFF_MODEL_PATH = os.path.join(MODELS_DIR, "authentication", "efficientnet_b4.pth")
 GEM_PIPELINE_PATH = os.path.join(MODELS_DIR, "authentication", "xgboost_model.pkl")

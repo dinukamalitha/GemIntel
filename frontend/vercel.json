@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/(docs|openapi.json|authenticate|reconstruct|health|gem-types|identify.*|feedback|api/.*)",
+      "destination": "https://dinukamalitha--gemintel-backend-fastapi-app.modal.run/$1"
+    }
+  ]
+}

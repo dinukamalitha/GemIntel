@@ -135,6 +135,8 @@ class EconomicContextUsed(BaseModel):
 
 
 class ValuationResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     status: str
     currency: str
     target: str
