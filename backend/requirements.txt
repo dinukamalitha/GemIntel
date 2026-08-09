@@ -1,6 +1,6 @@
-fastapi==0.103.1
+fastapi>=0.115.2
 pydantic>=2.4,<3.0
-uvicorn==0.23.2
+uvicorn>=0.23.2
 python-multipart>=0.0.9
 cloudinary
 python-dotenv
