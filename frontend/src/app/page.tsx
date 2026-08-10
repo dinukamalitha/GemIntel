@@ -52,11 +52,13 @@ export default function Home() {
   const handleStartFacetedFlow = () => {
     sessionStorage.setItem('faceted_flow_active', 'true');
     sessionStorage.setItem('faceted_flow_step', '1');
+    sessionStorage.removeItem('faceted_flow_gem_type');
     sessionStorage.removeItem('faceted_flow_image');
     sessionStorage.removeItem('faceted_flow_image_name');
     sessionStorage.removeItem('faceted_flow_auth_result');
     sessionStorage.removeItem('faceted_flow_identify_result');
     sessionStorage.removeItem('faceted_flow_carat_result');
+    sessionStorage.removeItem('faceted_flow_valuation_result');
     router.push('/authentication');
   };
 
@@ -197,16 +199,7 @@ export default function Home() {
 
 
 
-        {/* Direct shortcut: skip the guided auth flow, go straight to Feature Identification */}
-        <div className="text-center mt-6">
-          <Link
-            href="/four-c"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-400 hover:text-purple-300 transition-colors"
-          >
-            Skip authentication — go straight to Feature Identification →
-          </Link>
-        </div>
       </section>
     </div>
   );
-}
+}

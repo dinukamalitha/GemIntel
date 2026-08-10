@@ -111,8 +111,28 @@ export default function FeatureIdentification({ standalone = false }: { standalo
   const [flowImageName, setFlowImageName] = useState<string>('gem.png');
 
   useEffect(() => {
-    // standalone tab: never join the authentication flow, always plain upload/test.
-    if (standalone) return;
+    if (standalone) {
+      const idStr = sessionStorage.getItem('standalone_4c_identify_result');
+      if (idStr) {
+        try {
+          const parsedId = JSON.parse(idStr);
+          if (parsedId?.aggregate) setResult(parsedId);
+        } catch (e) {
+          console.error('Error restoring standalone 4C result', e);
+        }
+      }
+      const caratStr = sessionStorage.getItem('standalone_4c_carat_result');
+      if (caratStr) {
+        try {
+          const parsedCarat = JSON.parse(caratStr);
+          if (parsedCarat && typeof parsedCarat.carat === 'number') setCaratResult(parsedCarat);
+        } catch (e) {
+          console.error('Error restoring standalone carat result', e);
+        }
+      }
+      return;
+    }
+
     const active = sessionStorage.getItem('faceted_flow_active') === 'true';
     setIsFlowActive(active);
 
@@ -146,10 +166,37 @@ export default function FeatureIdentification({ standalone = false }: { standalo
           console.error('Error preloading authenticated image', e);
         }
       }
+
+      // Restore saved 4C identification result from previous execution
+      const idStr = sessionStorage.getItem('faceted_flow_identify_result');
+      if (idStr) {
+        try {
+          const parsedId = JSON.parse(idStr);
+          if (parsedId?.aggregate) {
+            setResult(parsedId);
+          }
+        } catch (e) {
+          console.error('Error restoring 4C identification result', e);
+        }
+      }
+
+      // Restore saved carat calculation result from previous execution
+      const caratStr = sessionStorage.getItem('faceted_flow_carat_result');
+      if (caratStr) {
+        try {
+          const parsedCarat = JSON.parse(caratStr);
+          if (parsedCarat && typeof parsedCarat.carat === 'number') {
+            setCaratResult(parsedCarat);
+          }
+        } catch (e) {
+          console.error('Error restoring carat result', e);
+        }
+      }
     }
   }, [standalone]);
 
   const handleProceed = () => {
+    sessionStorage.removeItem('faceted_flow_valuation_result');
     sessionStorage.setItem('faceted_flow_step', '3');
     router.push('/valuation');
   };
@@ -219,13 +266,18 @@ export default function FeatureIdentification({ standalone = false }: { standalo
 
   const handleReset = () => {
     setResult(null);
+    setCaratResult(null);
     setError(null);
     
     if (isFlowActive) {
       // Keep the imported image, but reset the selected gem type
       setGemType('');
+      sessionStorage.removeItem('faceted_flow_identify_result');
+      sessionStorage.removeItem('faceted_flow_carat_result');
     } else {
       // Standalone flow: clear everything
+      sessionStorage.removeItem('standalone_4c_identify_result');
+      sessionStorage.removeItem('standalone_4c_carat_result');
       clearAll();
     }
   };
@@ -317,7 +369,11 @@ export default function FeatureIdentification({ standalone = false }: { standalo
             depthMm: currentDepth,
           });
           setCaratResult(caratRes);
-          sessionStorage.setItem('faceted_flow_carat_result', JSON.stringify(caratRes));
+          if (isFlowActive) {
+            sessionStorage.setItem('faceted_flow_carat_result', JSON.stringify(caratRes));
+          } else if (standalone) {
+            sessionStorage.setItem('standalone_4c_carat_result', JSON.stringify(caratRes));
+          }
         } catch (err) {
           console.error('Carat auto-estimation error:', err);
         }
@@ -334,6 +390,9 @@ export default function FeatureIdentification({ standalone = false }: { standalo
       setResult(data);
       if (isFlowActive) {
         sessionStorage.setItem('faceted_flow_identify_result', JSON.stringify(data));
+        sessionStorage.removeItem('faceted_flow_valuation_result');
+      } else if (standalone) {
+        sessionStorage.setItem('standalone_4c_identify_result', JSON.stringify(data));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

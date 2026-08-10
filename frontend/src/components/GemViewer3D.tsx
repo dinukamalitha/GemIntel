@@ -850,7 +850,7 @@ export default function GemViewer3D({
                     {preset.name}
                   </span>
                   <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-400/30 hidden sm:inline-block">
-                    AI Analyzed
+                    ML Predicted
                   </span>
                   <button
                     type="button"

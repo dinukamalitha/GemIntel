@@ -47,7 +47,7 @@ const EMPTY_ECONOMIC_FACTORS: EconomicSnapshotDraft = {
   exchange_rate: '',
 };
 
-const DEFAULT_CONFIDENCE_LEVEL = 0.5;
+const DEFAULT_CONFIDENCE_LEVEL = 0.9;
 
 const getLocalDateString = () => {
   const now = new Date();
@@ -308,6 +308,155 @@ export default function Valuation() {
   const [authResult, setAuthResult] = useState<any>(null);
   const [identifyResult, setIdentifyResult] = useState<any>(null);
 
+  function computeFlowGemFactors(): GemFactors {
+    const defaultFactors: GemFactors = {
+      weight_ct: 1.5,
+      gem_type: 'Blue Sapphire',
+      hue: 'Royal Blue',
+      colour_intensity: 'Vivid',
+      clarity: 'VVS',
+      shape: 'Cushion',
+      cut: 'Mixed',
+      natural_or_synthetic: 'Natural',
+      heat_treatment: 'Not Heat Treated',
+    };
+
+    if (typeof window === 'undefined') return defaultFactors;
+
+    const authStr = sessionStorage.getItem('faceted_flow_auth_result');
+    const identifyStr = sessionStorage.getItem('faceted_flow_identify_result');
+    const roughStr = sessionStorage.getItem('rough_flow_cut_result');
+
+    let idRes: any = null;
+    if (identifyStr) {
+      try { idRes = JSON.parse(identifyStr); } catch (e) { console.error(e); }
+    } else if (roughStr) {
+      try { idRes = JSON.parse(roughStr); } catch (e) { console.error(e); }
+    }
+
+    if (!idRes) {
+      const savedType = sessionStorage.getItem('faceted_flow_gem_type');
+      if (savedType) {
+        const cleanType = savedType.replace('Ceylon ', '');
+        return { ...defaultFactors, gem_type: cleanType };
+      }
+      return defaultFactors;
+    }
+
+    let mappedGemType = 'Blue Sapphire';
+    const incomingGemType = idRes.gem_type || sessionStorage.getItem('faceted_flow_gem_type');
+    if (incomingGemType === 'Blue Sapphire' || incomingGemType === 'Ceylon Blue Sapphire') mappedGemType = 'Blue Sapphire';
+    else if (incomingGemType === 'Blue Spinel' || incomingGemType === 'Ceylon Blue Spinel') mappedGemType = 'Blue Spinel';
+    else if (incomingGemType === 'Blue Topaz' || incomingGemType === 'Ceylon Blue Topaz') mappedGemType = 'Blue Topaz';
+    else if (incomingGemType) mappedGemType = String(incomingGemType).replace('Ceylon ', '');
+
+    let mappedShape = 'Cushion';
+    const rawShape =
+      idRes.aggregate?.cut?.shape?.label ||
+      idRes.shape ||
+      idRes.cut_shape ||
+      idRes.predicted_shape ||
+      idRes.prediction?.cut;
+
+    if (rawShape && typeof rawShape === 'string') {
+      const cleanShape = rawShape.toLowerCase().trim();
+      if (cleanShape.includes('square') || cleanShape.includes('asscher')) mappedShape = 'Asscher';
+      else if (cleanShape.includes('cushion')) mappedShape = 'Cushion';
+      else if (cleanShape.includes('octagon') || cleanShape.includes('emerald') || cleanShape.includes('baguette')) mappedShape = 'Emerald';
+      else if (cleanShape.includes('heart')) mappedShape = 'Heart';
+      else if (cleanShape.includes('marquise')) mappedShape = 'Marquise';
+      else if (cleanShape.includes('oval')) mappedShape = 'Oval';
+      else if (cleanShape.includes('pear') || cleanShape.includes('teardrop')) mappedShape = 'Pear';
+      else if (cleanShape.includes('radiant') || cleanShape.includes('trillion') || cleanShape.includes('trilliant')) mappedShape = 'Radiant';
+      else if (cleanShape.includes('round') || cleanShape.includes('circle')) mappedShape = 'Round';
+    }
+
+    let mappedCut = 'Mixed';
+    const rawCut =
+      idRes.aggregate?.cut?.cut_style?.label ||
+      idRes.cut_style ||
+      idRes.cut ||
+      idRes.predicted_cut ||
+      idRes.prediction?.cut_style;
+
+    if (rawCut && typeof rawCut === 'string') {
+      const cleanCut = rawCut.toLowerCase().trim();
+      if (cleanCut.includes('brilliant')) mappedCut = 'Brilliant';
+      else if (cleanCut.includes('step')) mappedCut = 'Step';
+      else if (cleanCut.includes('mixed')) mappedCut = 'Mixed';
+      else if (cleanCut.includes('asscher')) mappedCut = 'Asscher Cut';
+      else if (cleanCut.includes('radiant')) mappedCut = 'Radiant Cut';
+      else if (cleanCut.includes('emerald')) mappedCut = 'Emerald';
+    }
+
+    let mappedColorIntensity = 'Vivid';
+    const rawIntensity = idRes.aggregate?.color?.intensity?.label || idRes.aggregate?.color?.saturation?.label;
+    if (rawIntensity) {
+      const cleanedInt = rawIntensity.toLowerCase().trim();
+      if (cleanedInt.includes('vivid')) mappedColorIntensity = 'Vivid';
+      else if (cleanedInt.includes('intense')) mappedColorIntensity = 'Intense';
+      else if (cleanedInt.includes('deep')) mappedColorIntensity = 'Deep';
+      else if (cleanedInt.includes('dark')) mappedColorIntensity = 'Dark';
+      else if (cleanedInt.includes('light')) mappedColorIntensity = 'Light';
+      else if (cleanedInt.includes('medium')) mappedColorIntensity = 'Medium';
+    }
+
+    let mappedHue = 'Royal Blue';
+    const rawHue = idRes.aggregate?.color?.hue?.label;
+    if (rawHue) {
+      const normalizedHue = rawHue.toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+      const hueMap: Record<string, string> = {
+        blue: 'Blue',
+        cobalt: 'Cobalt Blue', cobalt_blue: 'Cobalt Blue',
+        cornflower: 'Cornflower Blue', cornflower_blue: 'Cornflower Blue',
+        london: 'London Blue', london_blue: 'London Blue',
+        royal: 'Royal Blue', royal_blue: 'Royal Blue',
+        sky: 'Sky Blue', sky_blue: 'Sky Blue',
+        swiss: 'Swiss Blue', swiss_blue: 'Swiss Blue',
+      };
+      mappedHue = hueMap[normalizedHue] || rawHue.split(/[_-]/).map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    }
+
+    let mappedClarity = 'VVS';
+    const rawClarity = idRes.aggregate?.clarity?.grade?.label;
+    if (rawClarity) {
+      const cleanedClarity = rawClarity.toLowerCase().trim();
+      if (cleanedClarity.includes('eye') || cleanedClarity.includes('clean')) mappedClarity = 'Eye-clean';
+      else if (cleanedClarity.includes('if') || cleanedClarity.includes('flawless')) mappedClarity = 'IF';
+      else if (cleanedClarity.includes('vvs')) mappedClarity = 'VVS';
+      else if (cleanedClarity.includes('vs')) mappedClarity = 'VS';
+    }
+
+    const caratStr = sessionStorage.getItem('faceted_flow_carat_result');
+    let mappedWeight = 1.5;
+    if (caratStr) {
+      try {
+        const caratRes = JSON.parse(caratStr);
+        if (caratRes && typeof caratRes.carat === 'number' && caratRes.carat > 0) {
+          mappedWeight = +((caratRes.carat).toFixed(2));
+        }
+      } catch (err) {
+        console.error('Error parsing carat result in valuation page', err);
+      }
+    }
+
+    const authPrediction = authStr
+      ? JSON.parse(authStr)?.ensemble_result?.prediction
+      : 'Natural';
+
+    return {
+      weight_ct: mappedWeight,
+      gem_type: mappedGemType,
+      shape: mappedShape,
+      cut: mappedCut,
+      hue: mappedHue,
+      clarity: mappedClarity,
+      colour_intensity: mappedColorIntensity,
+      natural_or_synthetic: String(authPrediction).toLowerCase().includes('synthetic') ? 'Synthetic' : 'Natural',
+      heat_treatment: 'Not Heat Treated',
+    };
+  }
+
   useEffect(() => {
     const active = sessionStorage.getItem('faceted_flow_active') === 'true';
     setIsFlowActive(active);
@@ -338,136 +487,13 @@ export default function Valuation() {
       }
 
       if (idRes) {
-        try {
-          setIdentifyResult(idRes);
-
-          // 1. Gem type mapping
-          let mappedGemType = 'Blue Sapphire';
-          const incomingGemType = idRes.gem_type;
-          if (incomingGemType === 'Blue Sapphire' || incomingGemType === 'Ceylon Blue Sapphire') mappedGemType = 'Blue Sapphire';
-          else if (incomingGemType === 'Blue Spinel' || incomingGemType === 'Ceylon Blue Spinel') mappedGemType = 'Blue Spinel';
-          else if (incomingGemType === 'Blue Topaz' || incomingGemType === 'Ceylon Blue Topaz') mappedGemType = 'Blue Topaz';
-          else if (incomingGemType) mappedGemType = String(incomingGemType).replace('Ceylon ', '');
-
-          // 2. Shape mapping (e.g. 'square' -> 'Asscher', 'octagon' -> 'Emerald', 'round' -> 'Round')
-          let mappedShape = 'Cushion';
-          const rawShape = 
-            idRes.aggregate?.cut?.shape?.label ||
-            idRes.shape ||
-            idRes.cut_shape ||
-            idRes.predicted_shape ||
-            idRes.prediction?.cut;
-
-          if (rawShape && typeof rawShape === 'string') {
-            const cleanShape = rawShape.toLowerCase().trim();
-            if (cleanShape.includes('square') || cleanShape.includes('asscher')) mappedShape = 'Asscher';
-            else if (cleanShape.includes('cushion')) mappedShape = 'Cushion';
-            else if (cleanShape.includes('octagon') || cleanShape.includes('emerald') || cleanShape.includes('baguette')) mappedShape = 'Emerald';
-            else if (cleanShape.includes('heart')) mappedShape = 'Heart';
-            else if (cleanShape.includes('marquise')) mappedShape = 'Marquise';
-            else if (cleanShape.includes('oval')) mappedShape = 'Oval';
-            else if (cleanShape.includes('pear') || cleanShape.includes('teardrop')) mappedShape = 'Pear';
-            else if (cleanShape.includes('radiant') || cleanShape.includes('trillion') || cleanShape.includes('trilliant')) mappedShape = 'Radiant';
-            else if (cleanShape.includes('round') || cleanShape.includes('circle')) mappedShape = 'Round';
-          }
-
-          // 3. Cut style mapping (e.g. 'brilliant cut' -> 'Brilliant', 'mixed cut' -> 'Mixed', 'step cut' -> 'Step')
-          let mappedCut = 'Mixed';
-          const rawCut = 
-            idRes.aggregate?.cut?.cut_style?.label ||
-            idRes.cut_style ||
-            idRes.cut ||
-            idRes.predicted_cut ||
-            idRes.prediction?.cut_style;
-
-          if (rawCut && typeof rawCut === 'string') {
-            const cleanCut = rawCut.toLowerCase().trim();
-            if (cleanCut.includes('brilliant')) mappedCut = 'Brilliant';
-            else if (cleanCut.includes('step')) mappedCut = 'Step';
-            else if (cleanCut.includes('mixed')) mappedCut = 'Mixed';
-            else if (cleanCut.includes('asscher')) mappedCut = 'Asscher Cut';
-            else if (cleanCut.includes('radiant')) mappedCut = 'Radiant Cut';
-            else if (cleanCut.includes('emerald')) mappedCut = 'Emerald';
-          }
-
-          // 4. Color Intensity mapping: intensity -> saturation fallback
-          let mappedColorIntensity = 'Vivid';
-          const rawIntensity = idRes.aggregate?.color?.intensity?.label || idRes.aggregate?.color?.saturation?.label;
-          if (rawIntensity) {
-            const cleanedInt = rawIntensity.toLowerCase().trim();
-            if (cleanedInt.includes('vivid')) mappedColorIntensity = 'Vivid';
-            else if (cleanedInt.includes('intense')) mappedColorIntensity = 'Intense';
-            else if (cleanedInt.includes('deep')) mappedColorIntensity = 'Deep';
-            else if (cleanedInt.includes('dark')) mappedColorIntensity = 'Dark';
-            else if (cleanedInt.includes('light')) mappedColorIntensity = 'Light';
-            else if (cleanedInt.includes('medium')) mappedColorIntensity = 'Medium';
-          }
-
-          // 5. Hue mapping
-          let mappedHue = 'Royal Blue';
-          const rawHue = idRes.aggregate?.color?.hue?.label;
-          if (rawHue) {
-            const normalizedHue = rawHue.toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
-            const hueMap: Record<string, string> = {
-              blue: 'Blue',
-              cobalt: 'Cobalt Blue', cobalt_blue: 'Cobalt Blue',
-              cornflower: 'Cornflower Blue', cornflower_blue: 'Cornflower Blue',
-              london: 'London Blue', london_blue: 'London Blue',
-              royal: 'Royal Blue', royal_blue: 'Royal Blue',
-              sky: 'Sky Blue', sky_blue: 'Sky Blue',
-              swiss: 'Swiss Blue', swiss_blue: 'Swiss Blue',
-            };
-            mappedHue = hueMap[normalizedHue] || rawHue.split(/[_-]/).map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-          }
-
-          // 6. Clarity grade mapping
-          let mappedClarity = 'VVS';
-          const rawClarity = idRes.aggregate?.clarity?.grade?.label;
-          if (rawClarity) {
-            const cleanedClarity = rawClarity.toLowerCase().trim();
-            if (cleanedClarity.includes('eye') || cleanedClarity.includes('clean')) mappedClarity = 'Eye-clean';
-            else if (cleanedClarity.includes('if') || cleanedClarity.includes('flawless')) mappedClarity = 'IF';
-            else if (cleanedClarity.includes('vvs')) mappedClarity = 'VVS';
-            else if (cleanedClarity.includes('vs')) mappedClarity = 'VS';
-          }
-
-          const caratStr = sessionStorage.getItem('faceted_flow_carat_result');
-          let mappedWeight = 1.5;
-          if (caratStr) {
-            try {
-              const caratRes = JSON.parse(caratStr);
-              if (caratRes && typeof caratRes.carat === 'number' && caratRes.carat > 0) {
-                mappedWeight = +((caratRes.carat).toFixed(2));
-              }
-            } catch (err) {
-              console.error('Error parsing carat result in valuation page', err);
-            }
-          }
-
-          const authPrediction = authStr
-            ? JSON.parse(authStr)?.ensemble_result?.prediction
-            : 'Natural';
-
-          setGemFactors((prev) => ({
-            ...prev,
-            weight_ct: mappedWeight,
-            gem_type: mappedGemType,
-            shape: mappedShape,
-            cut: mappedCut,
-            hue: mappedHue,
-            clarity: mappedClarity,
-            colour_intensity: mappedColorIntensity,
-            natural_or_synthetic:
-              String(authPrediction).toLowerCase().includes('synthetic')
-                ? 'Synthetic'
-                : 'Natural',
-          }));
-        } catch (e) {
-          console.error('Error pre-populating valuation fields from flow', e);
-        }
+        setIdentifyResult(idRes);
       }
+
+      setGemFactors(computeFlowGemFactors());
     }
   }, []);
+
 
   // Gem Factors Form State
   const [gemFactors, setGemFactors] = useState<GemFactors>({
@@ -608,17 +634,21 @@ export default function Valuation() {
     setShowResult(false);
     setResult(null);
     sessionStorage.removeItem('faceted_flow_valuation_result');
-    setGemFactors({
-      weight_ct: 1.5,
-      gem_type: 'Blue Sapphire',
-      hue: 'Royal Blue',
-      colour_intensity: 'Vivid',
-      clarity: 'VVS',
-      shape: 'Cushion',
-      cut: 'Mixed',
-      natural_or_synthetic: 'Natural',
-      heat_treatment: 'Not Heat Treated',
-    });
+    if (isFlowActive || (typeof window !== 'undefined' && sessionStorage.getItem('faceted_flow_identify_result'))) {
+      setGemFactors(computeFlowGemFactors());
+    } else {
+      setGemFactors({
+        weight_ct: 1.5,
+        gem_type: 'Blue Sapphire',
+        hue: 'Royal Blue',
+        colour_intensity: 'Vivid',
+        clarity: 'VVS',
+        shape: 'Cushion',
+        cut: 'Mixed',
+        natural_or_synthetic: 'Natural',
+        heat_treatment: 'Not Heat Treated',
+      });
+    }
     setValuationDate(getLocalDateString());
     setEconomicContextReloadKey((value) => value + 1);
     setConfidenceLevel(DEFAULT_CONFIDENCE_LEVEL);
@@ -672,6 +702,7 @@ export default function Valuation() {
   ];
 
   const handleBack = () => {
+    sessionStorage.removeItem('faceted_flow_valuation_result');
     sessionStorage.setItem('faceted_flow_step', '2');
     router.push('/identification');
   };
@@ -990,9 +1021,7 @@ export default function Valuation() {
                 <p className="text-gray-400 text-xs sm:text-sm uppercase tracking-wider mb-2 font-semibold">
                   Estimated Price Range
                 </p>
-                {/* <div className="text-4xl sm:text-5xl lg:text-6xl font-bold gradient-text tracking-tight mb-3">
-                  LKR {result ? formatLkr(result.predicted_total_price_lkr) : '—'}
-                </div> */}
+
                 <p className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-blue-400 tracking-tight mb-3">
                   {result
                     ? `LKR ${formatLkr(result.prediction_interval.lower_total_price_lkr)} – LKR ${formatLkr(result.prediction_interval.upper_total_price_lkr)}`
@@ -1001,10 +1030,14 @@ export default function Valuation() {
                 <div className="inline-block px-4 py-1.5 bg-emerald-950/60 text-emerald-400 border border-emerald-500/30 rounded-full text-xs sm:text-sm font-semibold">
                   {result ? `${(result.prediction_interval.confidence_level * 100).toFixed(0)}% prediction interval` : 'Prediction interval'}
                 </div>
+
+                <div className="mt-4 text-2xl sm:text-2xl lg:text-2xl font-bold gradient-text tracking-tight mb-3">
+                  LKR {result ? formatLkr(result.predicted_total_price_lkr) : '—'}
+                </div>
+
               </div>
 
-              {/* Price-per-carat breakdown (commented out for now)
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-white/5 rounded-xl p-4 border border-white/10 shadow-lg">
                   <p className="text-xs text-gray-400 uppercase tracking-wider mb-2 font-semibold">
                     Predicted Price per Carat
@@ -1023,12 +1056,11 @@ export default function Valuation() {
                       : '—'}
                   </p>
                 </div>
-              </div>
+              </div> */}
 
-              <p className="text-xs text-gray-500 text-center leading-relaxed">
+              {/* <p className="text-xs text-gray-500 text-center leading-relaxed">
                 The total price and its interval are calculated by multiplying the predicted price per carat and interval bounds by {gemFactors.weight_ct} ct.
-              </p>
-              */}
+              </p> */}
 
               {result && (
                 <div className="space-y-6 border-t border-white/10 pt-6">
@@ -1116,7 +1148,7 @@ export default function Valuation() {
                         Ranked by influence on this individual prediction.
                       </p>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                       {result.explanation.factors.map((factor) => {
                         const isIncrease = factor.direction === 'increase';
                         const isNeutral = factor.direction === 'neutral';

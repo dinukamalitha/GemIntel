@@ -1,7 +1,43 @@
-__pycache__
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
 venv/
-*.pyc
-data/sessions/*
+.venv/
+env/
+ENV/
+
+# Environment variables & secrets
 .env
 .env.*
-models/
+!.env.example
+
+# ML Models & Binary Weights (Large files)
+models/*
+!models/.gitkeep
+*.pt
+*.pth
+*.pkl
+*.bin
+*.onnx
+*.h5
+*.safetensors
+
+# Data & Session outputs
+data/sessions/*
+!data/sessions/.gitkeep
+data/uploads/*
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Logs & OS Junk
+*.log
+.DS_Store
+Thumbs.db

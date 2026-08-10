@@ -35,7 +35,7 @@ class ValuationRequest(StrictSchema):
     economic_source: Literal["manual", "historical", "latest_available"] = "manual"
     economic_factors: Optional[EconomicSnapshot] = None
     economic_lags: Optional[List[EconomicSnapshot]] = None
-    confidence_level: float = Field(default=0.50, gt=0, lt=1)
+    confidence_level: float = Field(default=0.90, gt=0, lt=1)
 
     @field_validator("economic_lags")
     @classmethod

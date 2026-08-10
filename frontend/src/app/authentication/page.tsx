@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import FeatureLayout from '@/components/FeatureLayout';
 import FacetedFlowTracker from '@/components/FacetedFlowTracker';
@@ -49,7 +49,7 @@ const renderAuthenticationResult = (result: AuthenticationResult) => {
   const isRejected = isInvalidDomain || isAi || isSynthetic;
 
   // Domain score
-  const domainScore = result?.score !== undefined ? +(result.score * 100).toFixed(1) : 94.5;
+  const domainScore = result?.score !== undefined ? Number(result.score).toFixed(2) : '1.54';
   const stage1Pass = !isInvalidDomain;
 
   // AI Filter score
@@ -88,7 +88,7 @@ const renderAuthenticationResult = (result: AuthenticationResult) => {
             <div className="min-w-0">
               <div className="text-[10px] text-slate-400 uppercase font-semibold">Stage 1</div>
               <div className="text-xs font-bold truncate">Gem Image Domain</div>
-              <div className="text-[10px] text-slate-400 font-mono">{stage1Pass ? `Valid Gem (${domainScore}%)` : 'Invalid Input'}</div>
+              <div className="text-[10px] text-slate-400 font-mono">{stage1Pass ? `Valid Gem (Score: ${domainScore})` : 'Invalid Input'}</div>
             </div>
           </div>
 
@@ -219,7 +219,7 @@ const renderAuthenticationResult = (result: AuthenticationResult) => {
           </div>
           <div className="flex items-center gap-3 shrink-0 bg-slate-950 px-4 py-2.5 rounded-xl border border-slate-800">
             <span className="text-xs text-slate-400 uppercase font-semibold">Domain Score:</span>
-            <span className="text-sm font-extrabold font-mono text-blue-400">{domainScore}%</span>
+            <span className="text-sm font-extrabold font-mono text-blue-400">{domainScore}</span>
           </div>
         </div>
       </div>
@@ -332,6 +332,17 @@ export default function Authentication() {
   const [authResult, setAuthResult] = useState<any>(null);
   const [gemType, setGemType] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const active = sessionStorage.getItem('faceted_flow_active') === 'true';
@@ -340,6 +351,8 @@ export default function Authentication() {
     const savedType = sessionStorage.getItem('faceted_flow_gem_type');
     if (savedType) {
       setGemType(savedType);
+    } else {
+      setGemType('');
     }
 
     if (active) {
@@ -353,6 +366,7 @@ export default function Authentication() {
       }
     }
   }, []);
+
 
   const handleGemTypeSelect = (type: string) => {
     setGemType(type);
@@ -392,6 +406,7 @@ export default function Authentication() {
     if (gemType) {
       sessionStorage.setItem('faceted_flow_gem_type', gemType);
     }
+    sessionStorage.removeItem('faceted_flow_valuation_result');
     sessionStorage.setItem('faceted_flow_step', '2');
     router.push('/identification');
   };
@@ -454,12 +469,12 @@ export default function Authentication() {
         onSuccess={handleSuccess}
         customFooter={isFlowActive ? customFooter : undefined}
       >
-        <div className="w-full bg-slate-900/70 backdrop-blur-xl border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col gap-2.5 text-left shadow-xl animate-fade-in">
+        <div className="relative z-30 w-full bg-slate-900/70 backdrop-blur-xl border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col gap-2.5 text-left shadow-xl animate-fade-in">
           <label className="text-xs uppercase tracking-wider text-gray-400 font-bold flex items-center gap-1.5">
             <Gem className="w-3.5 h-3.5 text-cyan-400" />
             Target Gemstone Variety
           </label>
-          <div className="relative w-full">
+          <div className="relative w-full" ref={dropdownRef}>
             <button
               type="button"
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
